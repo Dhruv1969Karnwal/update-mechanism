@@ -1,21 +1,13 @@
 {
-  "version": "2.0.0",
+  "version": "3.0.0",
   "files_add": [
-    "update.py",
-    "github_actions_build.yml",
-    "requirements.txt",
-    "release_enhanced.py",
-    "version.json",
-    "manifest.json",
-    "release_config.json",
-    "version.py",
-    ".gitignore",
-    "DEVELOPMENT_ARCHITECTURE.md",
-    "release.py",
-    "README.md",
-    "ENHANCED_RELEASE_GUIDE.md"
+    "config_new/main.py",
+    "extra.py",
+    "config_new/app.py"
   ],
-  "files_edit": [],
+  "files_edit": [
+    "release_enhanced.py"
+  ],
   "files_delete": [],
-  "build_date": "2025-11-19T17:12:03.315555"
+  "build_date": "2025-11-19T17:14:42.856763"
 }
