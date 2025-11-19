@@ -1,0 +1,137 @@
+{
+  "exclude_patterns": [
+    ".git",
+    "__pycache__", 
+    "*.pyc",
+    ".idea",
+    ".vscode",
+    "node_modules",
+    "build",
+    "dist",
+    ".DS_Store",
+    "Thumbs.db",
+    "*.log",
+    "*.tmp",
+    "*.swp",
+    "*.swo",
+    ".env",
+    ".env.local",
+    ".env.development",
+    ".env.test",
+    ".env.production"
+  ],
+  "version_sources": [
+    "file_changes",
+    "commits", 
+    "config"
+  ],
+  "breaking_change_patterns": [
+    "BREAKING CHANGE:",
+    "breaking:",
+    "!:",
+    "major change",
+    "deprecat",
+    "remove",
+    "delete",
+    "schema",
+    "migration",
+    "config",
+    "database",
+    "api",
+    "interface"
+  ],
+  "feature_patterns": [
+    "feat:",
+    "feature:",
+    "new",
+    "add",
+    "implement",
+    "create",
+    "module",
+    "component",
+    "service",
+    "handler",
+    "controller"
+  ],
+  "fix_patterns": [
+    "fix:",
+    "bugfix:",
+    "patch:",
+    "resolve",
+    "correct",
+    "update",
+    "improve",
+    "optimize"
+  ],
+  "major_indicators": [
+    "config",
+    "database",
+    "schema", 
+    "migrate",
+    "requirements.txt",
+    "setup.py",
+    "pyproject.toml",
+    "Dockerfile",
+    "docker-compose",
+    "package.json",
+    "pom.xml",
+    "build.gradle"
+  ],
+  "minor_indicators": [
+    "module",
+    "feature",
+    "component",
+    "service",
+    "handler",
+    "controller",
+    "manager",
+    "client",
+    "api"
+  ],
+  "platform_config": {
+    "windows": {
+      "supported": true,
+      "architectures": ["x64"],
+      "requirements": ["Windows 10+"],
+      "build_tools": ["python", "node"],
+      "output_format": "zip",
+      "executable": "app.exe"
+    },
+    "linux": {
+      "supported": true,
+      "architectures": ["x64"],
+      "requirements": ["Ubuntu 18.04+", "CentOS 7+"],
+      "build_tools": ["python", "node"],
+      "output_format": "zip",
+      "executable": "./app"
+    },
+    "mac": {
+      "supported": true,
+      "architectures": ["x64", "arm64"],
+      "requirements": ["macOS 10.14+"],
+      "build_tools": ["python", "node"],
+      "output_format": "zip",
+      "executable": "./app"
+    }
+  },
+  "github_config": {
+    "auto_create_release": true,
+    "update_main_branch": true,
+    "create_pull_request": true,
+    "pr_title_template": "Release v{version}",
+    "pr_body_template": "Automated release deployment for version {version}"
+  },
+  "build_config": {
+    "timeout_minutes": 30,
+    "artifacts_retention_days": 30,
+    "cache_dependencies": true,
+    "parallel_builds": true,
+    "fail_fast": false
+  },
+  "notification_config": {
+    "on_success": true,
+    "on_failure": true,
+    "channels": ["log"],
+    "webhook_urls": []
+  }
+}

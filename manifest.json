@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "files_add": [
+    "release_config.json",
+    "manifest.json",
+    "github_actions_build.yml",
+    "release_enhanced.py",
+    "version.py",
+    "version.json",
+    "DEVELOPMENT_ARCHITECTURE.md",
+    "ENHANCED_RELEASE_GUIDE.md",
+    ".gitignore",
+    "README.md",
+    "update.py",
+    "requirements.txt",
+    "release.py"
+  ],
+  "files_edit": [],
+  "files_delete": [],
+  "build_date": "2025-11-19T16:34:46.397010"
+}

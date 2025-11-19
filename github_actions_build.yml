@@ -1,0 +1,329 @@
+name: Multi-Platform Release Build
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'release_v*/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'release_v*/**'
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Release version to build'
+        required: true
+        type: string
+      platforms:
+        description: 'Platforms to build (comma-separated)'
+        required: false
+        default: 'windows,linux,mac'
+        type: string
+
+env:
+  PYTHON_VERSION: '3.9'
+  NODE_VERSION: '18'
+
+jobs:
+  detect-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_version: ${{ steps.detect.outputs.release_version }}
+      platforms_matrix: ${{ steps.detect.outputs.platforms_matrix }}
+      should_build: ${{ steps.detect.outputs.should_build }}
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v3
+
+    - name: Detect release version
+      id: detect
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          version="${{ github.event.inputs.release_version }}"
+          echo "Using workflow input: $version"
+        else
+          # Detect from path changes
+          version=$(echo "${{ github.event.head_commit.message }}" | grep -oE 'release_v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/release_v//' || echo "auto")
+          if [ "$version" = "auto" ]; then
+            # Try to find from changed paths
+            version=$(git diff --name-only HEAD~1 HEAD | grep -oE 'release_v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/release_v//' | head -1 || echo "1.0.0")
+          fi
+          echo "Auto-detected version: $version"
+        fi
+        
+        if [ -z "$version" ]; then
+          echo "No version detected, using default"
+          version="1.0.0"
+        fi
+        
+        echo "release_version=$version" >> $GITHUB_OUTPUT
+        
+        # Platform matrix
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          platforms="${{ github.event.inputs.platforms }}"
+        else
+          platforms="windows,linux,mac"
+        fi
+        
+        echo "platforms_matrix=$platforms" >> $GITHUB_OUTPUT
+        echo "should_build=true" >> $GITHUB_OUTPUT
+
+  build-platforms:
+    needs: detect-release
+    if: needs.detect-release.outputs.should_build == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-latest
+            arch: x64
+            ext: .exe
+            zip_name: app_windows
+          - platform: linux
+            os: ubuntu-latest
+            arch: x64
+            ext: ""
+            zip_name: app_linux
+          - platform: mac
+            os: macos-latest
+            arch: universal
+            ext: ""
+            zip_name: app_mac
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v3
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/pip
+          node_modules
+        key: ${{ runner.os }}-deps-${{ hashFiles('**/requirements.txt', '**/package.json') }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        if [ -f package.json ]; then npm install; fi
+
+    - name: Build application for ${{ matrix.platform }}
+      id: build
+      run: |
+        echo "Building for ${{ matrix.platform }} on ${{ matrix.os }}"
+        
+        # Create build directory
+        mkdir -p dist/${{ matrix.platform }}
+        
+        # Application build logic (customize for your app)
+        case "${{ matrix.platform }}" in
+          windows)
+            echo "Building Windows executable..."
+            # Example with PyInstaller:
+            # pip install pyinstaller
+            # pyinstaller --onefile --windowed your_app.py
+            # cp dist/your_app.exe dist/windows/
+            
+            # For Python apps:
+            python -c "import sys; print(f'Python {sys.version} build for Windows')"
+            echo '{"platform": "windows", "version": "${{ needs.detect-release.outputs.release_version }}", "arch": "${{ matrix.arch }}"}' > dist/${{ matrix.platform }}/build_info.json
+            ;;
+          linux)
+            echo "Building Linux binary..."
+            # Example:
+            # python setup.py build
+            # cp build/your_app dist/linux/
+            
+            python -c "import sys; print(f'Python {sys.version} build for Linux')"
+            echo '{"platform": "linux", "version": "${{ needs.detect-release.outputs.release_version }}", "arch": "${{ matrix.arch }}"}' > dist/${{ matrix.platform }}/build_info.json
+            ;;
+          mac)
+            echo "Building macOS app..."
+            # Example:
+            # python setup.py bdist_wheel
+            # cp dist/*.whl dist/mac/
+            
+            python -c "import platform, sys; print(f'Python {sys.version} build for macOS on {platform.machine()}')"
+            echo '{"platform": "mac", "version": "${{ needs.detect-release.outputs.release_version }}", "arch": "${{ matrix.arch }}"}' > dist/${{ matrix.platform }}/build_info.json
+            ;;
+        esac
+        
+        # Copy additional files needed
+        cp README.md dist/${{ matrix.platform }}/ 2>/dev/null || echo "README.md not found"
+        cp LICENSE dist/${{ matrix.platform }}/ 2>/dev/null || echo "LICENSE not found"
+        
+        # Create zip archive
+        cd dist/${{ matrix.platform }}
+        zip -r ../${{ matrix.zip_name }}_v${{ needs.detect-release.outputs.release_version }}.zip .
+        cd ../..
+        
+        # Calculate checksum
+        if [[ "${{ runner.os }}" == "Linux" ]]; then
+          CHECKSUM=$(sha256sum dist/${{ matrix.zip_name }}_v${{ needs.detect-release.outputs.release_version }}.zip | cut -d' ' -f1)
+        elif [[ "${{ runner.os }}" == "macOS" ]]; then
+          CHECKSUM=$(shasum -a 256 dist/${{ matrix.zip_name }}_v${{ needs.detect-release.outputs.release_version }}.zip | cut -d' ' -f1)
+        else
+          # Windows
+          CHECKSUM=$(Get-FileHash dist/${{ matrix.zip_name }}_v${{ needs.detect-release.outputs.release_version }}.zip -Algorithm SHA256 | Select-Object -ExpandProperty Hash)
+        fi
+        
+        # Get file size
+        FILESIZE=$(stat -c%s dist/${{ matrix.zip_name }}_v${{ needs.detect-release.outputs.release_version }}.zip 2>/dev/null || stat -f%z dist/${{ matrix.zip_name }}_v${{ needs.detect-release.outputs.release_version }}.zip 2>/dev/null || echo "0")
+        
+        echo "checksum=$CHECKSUM" >> $GITHUB_OUTPUT
+        echo "filesize=$FILESIZE" >> $GITHUB_OUTPUT
+        echo "zip_path=dist/${{ matrix.zip_name }}_v${{ needs.detect-release.outputs.release_version }}.zip" >> $GITHUB_OUTPUT
+        echo "zip_name=${{ matrix.zip_name }}_v${{ needs.detect-release.outputs.release_version }}.zip" >> $GITHUB_OUTPUT
+
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ matrix.platform }}-build
+        path: ${{ steps.build.outputs.zip_path }}
+        retention-days: 30
+
+    - name: Create Release (if tag exists)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: ${{ steps.build.outputs.zip_path }}
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-manifest:
+    needs: [detect-release, build-platforms]
+    if: needs.detect-release.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v3
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: downloads/
+
+    - name: Update manifest with build results
+      run: |
+        # Find release folder
+        RELEASE_VERSION="${{ needs.detect-release.outputs.release_version }}"
+        RELEASE_FOLDER="release_v${RELEASE_VERSION}"
+        
+        if [ ! -d "$RELEASE_FOLDER" ]; then
+          echo "Release folder not found: $RELEASE_FOLDER"
+          exit 1
+        fi
+        
+        # Update manifest.json with actual build results
+        PLATFORMS="${{ needs.detect-release.outputs.platforms_matrix }}"
+        
+        # Create temporary manifest
+        python3 << EOF
+import json
+import os
+import glob
+
+manifest_path = "$RELEASE_FOLDER/manifest/manifest.json"
+if os.path.exists(manifest_path):
+    with open(manifest_path, 'r') as f:
+        manifest = json.load(f)
+    
+    # Update platform information
+    platforms = "$PLATFORMS".split(',')
+    
+    for platform in platforms:
+        download_folder = f"downloads/{platform}-build"
+        if os.path.exists(download_folder):
+            # Find the zip file
+            zip_files = glob.glob(f"{download_folder}/*_v{RELEASE_VERSION}*.zip")
+            if zip_files:
+                zip_file = zip_files[0]
+                filename = os.path.basename(zip_file)
+                
+                # Update manifest
+                if platform in manifest['platforms']:
+                    manifest['platforms'][platform]['file_name'] = filename
+                    manifest['platforms'][platform]['download_url'] = f"https://github.com/\${{ github.repository }}/releases/download/v{RELEASE_VERSION}/{filename}"
+                    # Note: You'll need to update the actual URL after release creation
+                    print(f"Updated {platform} in manifest: {filename}")
+            else:
+                print(f"No zip file found for {platform}")
+    
+    # Save updated manifest
+    with open(manifest_path, 'w') as f:
+        json.dump(manifest, f, indent=2)
+    
+    print("Manifest updated successfully")
+EOF
+
+    - name: Commit updated manifest
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add "$RELEASE_FOLDER/manifest/manifest.json"
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Update manifest v${RELEASE_VERSION} with build results"
+          git push
+        fi
+
+  create-release:
+    needs: [detect-release, build-platforms, update-manifest]
+    if: needs.detect-release.outputs.should_build == 'true' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v3
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: downloads/
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          downloads/*/*.zip
+          ${{ github.event.repository.name }}/manifest/manifest.json
+        draft: false
+        prerelease: false
+        body_path: ${{ github.event.repository.name }}/manifest/release_notes.md
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify:
+    needs: [detect-release, build-platforms, update-manifest, create-release]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+    - name: Notification on success
+      if: needs.build-platforms.result == 'success'
+      run: |
+        echo "✅ Multi-platform release build completed successfully!"
+        echo "Version: ${{ needs.detect-release.outputs.release_version }}"
+        echo "Platforms: ${{ needs.detect-release.outputs.platforms_matrix }}"
+
+    - name: Notification on failure
+      if: failure()
+      run: |
+        echo "❌ Release build failed!"
+        echo "Check the logs for details."
+        exit 1
