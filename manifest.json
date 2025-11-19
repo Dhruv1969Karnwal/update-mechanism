@@ -1,13 +1,10 @@
 {
-  "version": "3.0.0",
-  "files_add": [
-    "config_new/main.py",
+  "version": "4.0.0",
+  "files_add": [],
+  "files_edit": [],
+  "files_delete": [
     "extra.py",
     "config_new/app.py"
   ],
-  "files_edit": [
-    "release_enhanced.py"
-  ],
-  "files_delete": [],
-  "build_date": "2025-11-19T17:14:42.856763"
+  "build_date": "2025-11-19T17:16:10.290567"
 }
