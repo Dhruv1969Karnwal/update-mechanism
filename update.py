@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 User-side update script for applying application updates.
@@ -6,7 +7,6 @@ Integrates with @updater-middleware for GitHub interactions.
 Enhanced to work with branch-based releases instead of tags.
 Uses only standard Python libraries.
 """
-
 import os
 import sys
 import json
@@ -17,8 +17,8 @@ import urllib.error
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 import platform
-
 import version
+
 
 
 class MiddlewareUpdater:
@@ -35,7 +35,7 @@ class MiddlewareUpdater:
         self.middleware_url = middleware_url.rstrip('/')
         self.repo = repo
         self.timeout = 30
-    
+
     def _make_request(self, endpoint: str) -> Dict[str, Any]:
         """
         Make a request to the middleware.
@@ -70,7 +70,7 @@ class MiddlewareUpdater:
                 raise Exception(f"HTTP {e.code}: {e.reason}")
         except Exception as e:
             raise Exception(f"Request failed: {str(e)}")
-    
+
     def get_release_manifest(self, version_tag: str) -> Optional[Dict[str, Any]]:
         """
         Fetch manifest.json for a specific release from middleware.
@@ -94,7 +94,7 @@ class MiddlewareUpdater:
         except Exception as e:
             print(f"Error fetching manifest: {e}")
             return None
-    
+
     def download_file(self, version_tag: str, filename: str, target_path: str) -> bool:
         """
         Download a file from a specific release via middleware.
@@ -129,9 +129,9 @@ class MiddlewareUpdater:
                 download_url += f"?repo={self.repo}"
             
             # Create directory if it doesn't exist
-            target_dir = os.path.dirname(target_path)
-            if target_dir:
-                os.makedirs(target_dir, exist_ok=True)
+            target_path_obj = Path(target_path)
+            target_dir = target_path_obj.parent
+            target_dir.mkdir(parents=True, exist_ok=True)
             
             # Download with timeout
             with urllib.request.urlopen(download_url, timeout=self.timeout) as response:
@@ -144,17 +144,17 @@ class MiddlewareUpdater:
                         return False
                     
                     # Create backup if file exists
-                    if os.path.exists(target_path):
-                        backup_path = f"{target_path}.backup"
-                        shutil.copy2(target_path, backup_path)
+                    if target_path_obj.exists():
+                        backup_path = target_path_obj.with_suffix(f"{target_path_obj.suffix}.backup")
+                        shutil.copy2(target_path_obj, backup_path)
                         print(f"Created backup: {backup_path}")
                     
                     # Write file
-                    with open(target_path, 'wb') as f:
+                    with open(target_path_obj, 'wb') as f:
                         f.write(content)
                     
                     # Verify file was written correctly
-                    if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+                    if target_path_obj.exists() and target_path_obj.stat().st_size > 0:
                         print(f"Successfully downloaded: {filename}")
                         return True
                     else:
@@ -167,22 +167,22 @@ class MiddlewareUpdater:
         except Exception as e:
             print(f"Error downloading {filename}: {e}")
             return False
-    
-    def list_releases(self) -> List[str]:  # Change return type annotation to List[Dict[str, Any]]
+
+    def list_releases(self) -> List[str]:
         """
         List all available releases from middleware.
         
         Returns:
-            List of release dictionaries  # Update docstring
+            List of release dictionaries
         """
         try:
             data = self._make_request("/releases")
-            return data  # Return the full data instead of extracting 'tag_name'
+            return data
         except Exception as e:
             print(f"Error listing releases: {e}")
             return []
 
-    
+
     def get_codebase_info(self, version_tag: str) -> Optional[Dict[str, Any]]:
         """
         Get codebase information for a release.
@@ -203,29 +203,33 @@ class MiddlewareUpdater:
             print(f"Error getting codebase info: {e}")
             return None
 
-
 class UpdateManager:
     """Manages the update process from start to finish with enhanced features."""
     
-    def __init__(self, middleware_updater: MiddlewareUpdater, app_root: str = "."):
+    def __init__(self, middleware_updater: MiddlewareUpdater, codemate_path: Optional[str] = None):
         """
         Initialize update manager.
         
         Args:
             middleware_updater: MiddlewareUpdater instance
-            app_root: Application root directory
+            codemate_path: Optional path to the codemate directory (overrides default ~/.codemate.test)
         """
         self.middleware = middleware_updater
-        self.app_root = Path(app_root)
-        self.codemate_dir = Path.home() / ".codemate.test"
+        
+        # Establish the single source directory
+        if codemate_path:
+            self.codemate_dir = Path(codemate_path)
+        else:
+            self.codemate_dir = Path.home() / ".codemate.test"
+            
         self.version_file = self.codemate_dir / "version.txt"
         
         # Ensure .codemate directory exists
-        self.codemate_dir.mkdir(exist_ok=True)
-    
+        self.codemate_dir.mkdir(parents=True, exist_ok=True)
+
     def load_current_version(self) -> Optional[version.Version]:
         """
-        Load current version from .codemate/version.txt.
+        Load current version from .codemate.test/version.txt.
         
         Returns:
             Current Version object or None if not found
@@ -243,10 +247,10 @@ class UpdateManager:
         except Exception as e:
             print(f"Error loading current version: {e}")
             return None
-    
+
     def save_version(self, ver: version.Version) -> bool:
         """
-        Save version to .codemate/version.txt.
+        Save version to .codemate.test/version.txt.
         
         Args:
             ver: Version to save
@@ -264,7 +268,7 @@ class UpdateManager:
         except Exception as e:
             print(f"Error saving version: {e}")
             return False
-    
+
     def is_fresh_installation(self) -> bool:
         """
         Check if this is a fresh installation.
@@ -273,7 +277,7 @@ class UpdateManager:
             True if no version file exists (fresh install)
         """
         return not self.version_file.exists()
-    
+
     def perform_initial_installation(self, target_version: str) -> bool:
         """
         Perform initial installation for fresh installations.
@@ -311,6 +315,7 @@ class UpdateManager:
             print(f"Installing version {target_ver}...")
             print(f"Platform: {platform.system()}")
             print(f"Architecture: {platform.machine()}")
+            print(f"Installation Directory: {self.codemate_dir}")
             
             # Apply manifest changes
             if not self.apply_manifest_changes(manifest, str(target_ver), is_installation=True):
@@ -331,7 +336,7 @@ class UpdateManager:
         except Exception as e:
             print(f"Error during installation: {e}")
             return False
-    
+
     def validate_update_permissions(self, current: version.Version, target: version.Version) -> bool:
         """
         Validate if update from current to target is allowed and get user confirmation.
@@ -358,7 +363,7 @@ class UpdateManager:
             print(f"[PACKAGE] {update_type.capitalize()} update available: {current} → {target}")
             response = input("Do you want to proceed with this update? (y/N): ").strip().lower()
             return response in ['y', 'yes']
-    
+
     def apply_manifest_changes(self, manifest: Dict[str, Any], version_tag: str, is_installation: bool = False) -> bool:
         """
         Apply changes described in manifest with enhanced error handling.
@@ -388,8 +393,13 @@ class UpdateManager:
             if not is_installation:
                 print("[LOCK] Creating backup of current state...")
                 backup_dir = self.codemate_dir / f"backup_{manifest_version}"
+                # When backing up self to self/subdir, ignore the backup dir and staging dir to prevent recursion/bloat
                 if not backup_dir.exists():
-                    shutil.copytree(self.app_root, backup_dir, ignore=shutil.ignore_patterns('backup_*'))
+                    shutil.copytree(
+                        self.codemate_dir, 
+                        backup_dir, 
+                        ignore=shutil.ignore_patterns('backup_*', 'staging*')
+                    )
                     print(f"[OK] Backup created: {backup_dir}")
             
             success_count = 0
@@ -422,7 +432,7 @@ class UpdateManager:
                         failed_operations.append(error_msg)
                         continue
                     
-                    file_path = self.app_root / filename
+                    file_path = self.codemate_dir / filename
                     if file_path.exists():
                         try:
                             print(f"   [DELETE]  {filename}")
@@ -450,7 +460,7 @@ class UpdateManager:
                         failed_operations.append(error_msg)
                         continue
                     
-                    target_path = self.app_root / filename
+                    target_path = self.codemate_dir / filename
                     print(f"   [DOWNLOAD]  {filename}")
                     if self.middleware.download_file(version_tag, filename, str(target_path)):
                         success_count += 1
@@ -470,7 +480,7 @@ class UpdateManager:
                         failed_operations.append(error_msg)
                         continue
                     
-                    target_path = self.app_root / filename
+                    target_path = self.codemate_dir / filename
                     print(f"   [UPDATE] {filename}")
                     if self.middleware.download_file(version_tag, filename, str(target_path)):
                         success_count += 1
@@ -485,12 +495,12 @@ class UpdateManager:
                 print(f"\n[PACKAGE] Installing dependencies...")
                 
                 # Download requirements.txt if not already present
-                req_path = self.app_root / "requirements.txt"
+                req_path = self.codemate_dir / "requirements.txt"
                 if self.middleware.download_file(version_tag, "requirements.txt", str(req_path)):
                     try:
                         print("   [PACKAGE] Installing Python dependencies...")
                         result = subprocess.run(
-                            [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"],
+                            [sys.executable, "-m", "pip", "install", "-r", str(req_path)],
                             check=True,
                             capture_output=True,
                             text=True,
@@ -539,7 +549,7 @@ class UpdateManager:
             if not is_installation:
                 self._rollback_changes(manifest.get('version', 'unknown'))
             return False
-    
+
     def _rollback_changes(self, backup_version: str) -> None:
         """
         Rollback changes using backup.
@@ -553,9 +563,28 @@ class UpdateManager:
                 print(f"[UPDATE] Rolling back changes using backup...")
                 
                 # Restore from backup
-                if self.app_root.exists():
-                    shutil.rmtree(self.app_root)
-                shutil.copytree(backup_dir, self.app_root)
+                # NOTE: Since backup_dir is inside codemate_dir, we cannot delete codemate_dir entirely
+                # We use copytree with dirs_exist_ok=True to restore files
+                if sys.version_info >= (3, 8):
+                    shutil.copytree(backup_dir, self.codemate_dir, dirs_exist_ok=True)
+                else:
+                    # Fallback for older python versions if necessary, though Python 3 is expected
+                    # Remove contents of codemate_dir excluding backups/staging to ensure clean state
+                    for item in self.codemate_dir.iterdir():
+                        if item.name.startswith('backup_') or item.name.startswith('staging'):
+                            continue
+                        if item.is_dir():
+                            shutil.rmtree(item)
+                        else:
+                            item.unlink()
+                    
+                    # Copy files back
+                    for item in backup_dir.iterdir():
+                        dest = self.codemate_dir / item.name
+                        if item.is_dir():
+                            shutil.copytree(item, dest)
+                        else:
+                            shutil.copy2(item, dest)
                 
                 print(f"[OK] Rollback completed successfully")
                 print(f"[DIR] Backup location: {backup_dir}")
@@ -563,7 +592,7 @@ class UpdateManager:
                 print(f"[WARNING]  No backup found for rollback: {backup_dir}")
         except Exception as e:
             print(f"[ERROR] Rollback failed: {e}")
-    
+
     def _validate_filename(self, filename: str) -> bool:
         """
         Validate filename for security to prevent path traversal attacks.
@@ -588,7 +617,7 @@ class UpdateManager:
                 return False
         
         return True
-    
+
     def update_to_version(self, target_version: str) -> bool:
         """
         Update application to target version with sequential updates and rollback.
@@ -675,7 +704,7 @@ class UpdateManager:
         except Exception as e:
             print(f"[CRITICAL] Error during update: {e}")
             return False
-    
+
     def _apply_update_staged(self, manifest: Dict[str, Any], version_tag: str, staging_dir: Path) -> bool:
         """
         Apply update in persistent staging area before final commit.
@@ -694,25 +723,39 @@ class UpdateManager:
             stage_backup_dir.mkdir(parents=True, exist_ok=True)
 
             # Copy current app to staging area
-            if self.app_root.exists():
-                shutil.copytree(self.app_root, stage_backup_dir / "app", ignore=shutil.ignore_patterns('backup_*'))
+            # Ignore staging/backups to avoid recursion
+            if self.codemate_dir.exists():
+                shutil.copytree(
+                    self.codemate_dir, 
+                    stage_backup_dir / "app", 
+                    ignore=shutil.ignore_patterns('backup_*', 'staging*')
+                )
 
             # Apply changes to staged version
             staged_manager = UpdateManager(self.middleware, str(stage_backup_dir / "app"))
             success = staged_manager.apply_manifest_changes(manifest, version_tag)
 
             if success:
-                # Commit staged changes to actual app directory
-                if self.app_root.exists():
-                    shutil.rmtree(self.app_root)
-                shutil.copytree(stage_backup_dir / "app", self.app_root)
+                # Commit staged changes to actual codemate directory
+                # We cannot delete codemate_dir if the staging dir is inside it.
+                # We use copytree with dirs_exist_ok=True to overwrite/update.
+                if sys.version_info >= (3, 8):
+                    shutil.copytree(stage_backup_dir / "app", self.codemate_dir, dirs_exist_ok=True)
+                else:
+                    # Fallback for older python: Manual copy/overwrite
+                    src_app = stage_backup_dir / "app"
+                    for item in src_app.rglob('*'):
+                        if item.is_file():
+                            rel_path = item.relative_to(src_app)
+                            dest_path = self.codemate_dir / rel_path
+                            dest_path.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(item, dest_path)
 
             return success
 
         except Exception as e:
             print(f"Error in staged update: {e}")
             return False
-
 
 def main():
     """Main entry point for the update script."""
@@ -721,20 +764,21 @@ def main():
     parser = argparse.ArgumentParser(description="Update application to a new version")
     parser.add_argument("version", nargs="?", help="Target version (e.g., 1.2.3)")
     parser.add_argument("--middleware-url", default="http://localhost:8000",
-                       help="URL of the middleware server")
+                    help="URL of the middleware server")
     parser.add_argument("--repo", 
-                       help="GitHub repository in format owner/repo (overrides middleware default)")
+                    help="GitHub repository in format owner/repo (overrides middleware default)")
     parser.add_argument("--list", action="store_true", 
-                       help="List available versions")
+                    help="List available versions")
     parser.add_argument("--check", action="store_true",
-                       help="Check current version and available updates")
-    
+                    help="Check current version and available updates")
+
     args = parser.parse_args()
-    
+
     # Initialize middleware updater
     middleware_updater = MiddlewareUpdater(args.middleware_url, args.repo)
+    # UpdateManager now defaults to ~/.codemate.test
     update_manager = UpdateManager(middleware_updater)
-    
+
     # Check middleware health
     try:
         health = middleware_updater._make_request("/health")
@@ -747,7 +791,7 @@ def main():
         print("Please ensure the middleware server is running:")
         print("  cd updater-middleware && python main.py")
         sys.exit(1)
-    
+
     # Check current status if requested
     if args.check:
         current_ver = update_manager.load_current_version()
@@ -782,7 +826,7 @@ def main():
             print("[NEW] Not installed (fresh installation)")
             print("Run: python update.py <version> to install")
             return
-    
+
     # List versions if requested
     if args.list:
         versions = middleware_updater.list_releases()
@@ -795,24 +839,24 @@ def main():
         else:
             print("[ERROR] No branch-based versions found")
         return
-    
+
     # Get target version
     target_version = args.version
     if not target_version:
         if update_manager.is_fresh_installation():
             print("[NEW] Fresh installation detected.")
         target_version = input("Enter version to install (e.g., 1.2.3): ").strip()
-    
+
     if not version.validate_version_string(target_version):
         print(f"[ERROR] Invalid version format: {target_version}")
         sys.exit(1)
-    
+
     # Perform update or installation
     if update_manager.is_fresh_installation():
         success = update_manager.perform_initial_installation(target_version)
     else:
         success = update_manager.update_to_version(target_version)
-    
+
     sys.exit(0 if success else 1)
 
 
