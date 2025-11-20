@@ -1,12 +1,19 @@
-
 #!/usr/bin/env python3
 """
-User-side update script for applying application updates.
+Enhanced user-side update script with improved staging system.
 Handles version detection, validation, sequential updates, and file operations.
 Integrates with @updater-middleware for GitHub interactions.
 Enhanced to work with branch-based releases instead of tags.
 Uses only standard Python libraries.
+
+Key Improvements:
+- Fresh install staging: downloads to .codemate.test.staging → .codemate.test
+- Update backup staging: creates backup_staging using exclude patterns
+- Exclude array for permanent files/folders
+- Cross-platform compatibility with pathlib
+- Enhanced cleanup mechanisms
 """
+
 import os
 import sys
 import json
@@ -19,6 +26,38 @@ from pathlib import Path
 import platform
 import version
 
+# Define exclude patterns for permanent files/folders
+EXCLUDE_PATTERNS = [
+    # User data and permanent folders
+    'user_data/',
+    'config/user_settings.json', 
+    'logs/',
+    'cache/',
+    'temp/',
+    'backup_*/',  # Backup directories
+    'staging*/',  # Staging directories
+    
+    # Temporary files
+    '*.tmp',
+    '*.temp',
+    '*.bak',
+    
+    # Environment and sensitive files
+    '.env',
+    '.env.*',
+    '*.key',
+    '*.secret',
+    
+    # User-generated content
+    'user_files/',
+    'documents/',
+    'media/',
+    
+    # System files that should not be overwritten
+    '.DS_Store',
+    'Thumbs.db',
+    'desktop.ini'
+]
 
 
 class MiddlewareUpdater:
@@ -143,13 +182,7 @@ class MiddlewareUpdater:
                         print(f"Error: Downloaded file {filename} is empty")
                         return False
                     
-                    # Create backup if file exists
-                    if target_path_obj.exists():
-                        backup_path = target_path_obj.with_suffix(f"{target_path_obj.suffix}.backup")
-                        shutil.copy2(target_path_obj, backup_path)
-                        print(f"Created backup: {backup_path}")
-                    
-                    # Write file
+                    # Write file directly (backup staging handles backup at directory level)
                     with open(target_path_obj, 'wb') as f:
                         f.write(content)
                     
@@ -202,6 +235,44 @@ class MiddlewareUpdater:
         except Exception as e:
             print(f"Error getting codebase info: {e}")
             return None
+
+
+def _get_exclude_function(exclude_patterns: List[str] = None) -> callable:
+    """
+    Create ignore function for shutil.copytree that handles exclude patterns.
+    
+    Args:
+        exclude_patterns: List of patterns to exclude
+        
+    Returns:
+        Function for shutil.ignore_patterns
+    """
+    if exclude_patterns is None:
+        exclude_patterns = EXCLUDE_PATTERNS
+    
+    # Convert to list of ignore patterns for shutil.ignore_patterns
+    return shutil.ignore_patterns(*exclude_patterns)
+
+
+def _safe_path(path: Path) -> Path:
+    """
+    Ensure path is within safe bounds (prevent path traversal).
+    
+    Args:
+        path: Path to validate
+        
+    Returns:
+        Safe path or raises ValueError
+        
+    Raises:
+        ValueError: If path contains path traversal attempts
+    """
+    if '..' in str(path) or str(path).startswith('/') or '\\' in str(path):
+        raise ValueError(f"Unsafe path: {path}")
+    
+    # Normalize path to resolve any . or .. components
+    return path.resolve().relative_to(path.resolve().anchor)
+
 
 class UpdateManager:
     """Manages the update process from start to finish with enhanced features."""
@@ -280,7 +351,7 @@ class UpdateManager:
 
     def perform_initial_installation(self, target_version: str) -> bool:
         """
-        Perform initial installation for fresh installations.
+        Perform initial installation for fresh installations using staging.
         
         Args:
             target_version: Target version to install
@@ -290,7 +361,7 @@ class UpdateManager:
         """
         try:
             print("=" * 60)
-            print("INITIAL INSTALLATION FLOW")
+            print("FRESH INSTALLATION FLOW")
             print("=" * 60)
             
             target_ver = version.Version(target_version)
@@ -317,21 +388,52 @@ class UpdateManager:
             print(f"Architecture: {platform.machine()}")
             print(f"Installation Directory: {self.codemate_dir}")
             
-            # Apply manifest changes
-            if not self.apply_manifest_changes(manifest, str(target_ver), is_installation=True):
-                print("Installation failed")
+            # Create staging directory for fresh install
+            staging_dir = self.codemate_dir.parent / f"{self.codemate_dir.name}.staging"
+            staging_dir.mkdir(parents=True, exist_ok=True)
+            print(f"[STAGING] Created staging directory: {staging_dir}")
+            
+            try:
+                # Apply manifest changes to staging directory
+                staged_manager = UpdateManager(self.middleware, str(staging_dir))
+                if not staged_manager.apply_manifest_changes(manifest, str(target_ver), is_installation=True):
+                    print("[ERROR] Failed to download files to staging")
+                    return False
+                
+                print("[STAGING] All downloads completed successfully")
+                
+                # Move staging to final destination
+                print("[COMMIT] Moving staged files to final destination...")
+                if sys.version_info >= (3, 8):
+                    shutil.copytree(staging_dir, self.codemate_dir, dirs_exist_ok=True)
+                else:
+                    # Manual copy for older Python versions
+                    if self.codemate_dir.exists():
+                        shutil.rmtree(self.codemate_dir)
+                    shutil.move(str(staging_dir), str(self.codemate_dir))
+                
+                print(f"[OK] Files moved successfully to {self.codemate_dir}")
+                
+                # Save version
+                if not self.save_version(target_ver):
+                    print("Failed to save version")
+                    return False
+                
+                print(f"\n[OK] Fresh installation completed successfully!")
+                print(f"Version {target_ver} has been installed.")
+                print(f"Version file: {self.version_file}")
+                
+                return True
+                
+            except Exception as e:
+                print(f"[ERROR] Error during staging: {e}")
                 return False
-            
-            # Save version
-            if not self.save_version(target_ver):
-                print("Failed to save version")
-                return False
-            
-            print(f"\n[OK] Installation completed successfully!")
-            print(f"Version {target_ver} has been installed.")
-            print(f"Version file: {self.version_file}")
-            
-            return True
+                
+            finally:
+                # Always clean up staging directory
+                if staging_dir.exists():
+                    shutil.rmtree(staging_dir)
+                    print(f"[CLEANUP] Staging directory removed: {staging_dir}")
             
         except Exception as e:
             print(f"Error during installation: {e}")
@@ -364,9 +466,44 @@ class UpdateManager:
             response = input("Do you want to proceed with this update? (y/N): ").strip().lower()
             return response in ['y', 'yes']
 
+    def _create_safe_backup_staging(self, staging_dir: Path, version_tag: str) -> bool:
+        """
+        Create backup staging directory excluding permanent files.
+        
+        Args:
+            staging_dir: Backup staging directory
+            version_tag: Version for backup directory naming
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            backup_staging_dir = staging_dir / f"backup_staging_{version_tag}"
+            backup_staging_dir.mkdir(parents=True, exist_ok=True)
+            
+            print(f"[BACKUP] Creating safe backup in: {backup_staging_dir}")
+            
+            # Copy only codebase files, excluding permanent/user files
+            if self.codemate_dir.exists():
+                exclude_func = _get_exclude_function()
+                shutil.copytree(
+                    self.codemate_dir,
+                    backup_staging_dir / "original",
+                    ignore=exclude_func
+                )
+                
+                print(f"[BACKUP] Safe backup created with exclude patterns")
+                print(f"         Excluded: {EXCLUDE_PATTERNS}")
+                
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] Failed to create backup staging: {e}")
+            return False
+
     def apply_manifest_changes(self, manifest: Dict[str, Any], version_tag: str, is_installation: bool = False) -> bool:
         """
-        Apply changes described in manifest with enhanced error handling.
+        Apply changes described in manifest with enhanced error handling and staging.
         
         Args:
             manifest: Manifest data
@@ -389,23 +526,6 @@ class UpdateManager:
             print(f"\n[LIST] Applying manifest changes for {operation_type}...")
             print(f"[FILE] Manifest version: {manifest_version}")
             
-            # Create backup for updates (not for fresh installations)
-            if not is_installation:
-                print("[LOCK] Creating backup of current state...")
-                backup_dir = self.codemate_dir / f"backup_{manifest_version}"
-                # When backing up self to self/subdir, ignore the backup dir and staging dir to prevent recursion/bloat
-                if not backup_dir.exists():
-                    shutil.copytree(
-                        self.codemate_dir, 
-                        backup_dir, 
-                        ignore=shutil.ignore_patterns('backup_*', 'staging*')
-                    )
-                    print(f"[OK] Backup created: {backup_dir}")
-            
-            success_count = 0
-            total_operations = 0
-            failed_operations = []
-            
             # Handle enhanced manifest structure (new format)
             if 'codebase' in manifest:
                 codebase = manifest['codebase']
@@ -420,6 +540,10 @@ class UpdateManager:
                 files_add = manifest.get('files_add', [])
                 files_edit = manifest.get('files_edit', [])
                 files_delete = manifest.get('files_delete', [])
+            
+            success_count = 0
+            total_operations = 0
+            failed_operations = []
             
             # Phase 1: Delete files
             if files_delete:
@@ -654,12 +778,17 @@ class UpdateManager:
             else:
                 print(f"[UPDATE] Sequential update through: {' → '.join(map(str, intermediate_versions))}")
             
-            # Create persistent staging directory for updates
-            staging_dir = self.codemate_dir / "staging"
-            staging_dir.mkdir(parents=True, exist_ok=True)
-            print(f"[DIR] Staging directory: {staging_dir}")
+            # Create backup staging directory for updates
+            backup_staging_dir = self.codemate_dir.parent / "backup_staging"
+            backup_staging_dir.mkdir(parents=True, exist_ok=True)
+            print(f"[BACKUP_STAGING] Directory: {backup_staging_dir}")
 
             try:
+                # For updates, create safe backup staging first
+                if not self._create_safe_backup_staging(backup_staging_dir, str(target_ver)):
+                    print("[ERROR] Failed to create backup staging")
+                    return False
+
                 # Apply updates sequentially
                 for i, version_to_apply in enumerate(intermediate_versions):
                     print(f"\n{'='*40}")
@@ -672,8 +801,8 @@ class UpdateManager:
                         print(f"[ERROR] Could not find manifest for version {version_to_apply}")
                         return False
 
-                    # Apply changes with persistent staging
-                    if not self._apply_update_staged(manifest, str(version_to_apply), staging_dir):
+                    # Apply changes to main codemate directory
+                    if not self.apply_manifest_changes(manifest, str(version_to_apply), is_installation=False):
                         print(f"[ERROR] Failed to apply update to version {version_to_apply}")
                         return False
 
@@ -684,10 +813,10 @@ class UpdateManager:
                         print(f"[ERROR] Failed to save version {version_to_apply}")
                         return False
 
-                # Cleanup staging directory after successful update
-                if staging_dir.exists():
-                    shutil.rmtree(staging_dir)
-                    print(f"[CLEANUP] Staging directory removed: {staging_dir}")
+                # Cleanup backup staging directory after successful update
+                if backup_staging_dir.exists():
+                    shutil.rmtree(backup_staging_dir)
+                    print(f"[CLEANUP] Backup staging directory removed: {backup_staging_dir}")
 
                 print(f"\n🎉 Update completed successfully!")
                 print(f"[PACKAGE] Current version: {target_ver}")
@@ -697,65 +826,14 @@ class UpdateManager:
 
             except Exception as e:
                 print(f"[CRITICAL] Error during update: {e}")
-                # Leave staging directory for potential manual recovery
-                print(f"[WARNING] Staging directory preserved for recovery: {staging_dir}")
+                # Leave backup staging directory for potential manual recovery
+                print(f"[WARNING] Backup staging directory preserved for recovery: {backup_staging_dir}")
                 return False
             
         except Exception as e:
             print(f"[CRITICAL] Error during update: {e}")
             return False
 
-    def _apply_update_staged(self, manifest: Dict[str, Any], version_tag: str, staging_dir: Path) -> bool:
-        """
-        Apply update in persistent staging area before final commit.
-
-        Args:
-            manifest: Manifest data
-            version_tag: Version tag
-            staging_dir: Persistent staging directory for updates
-
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            # Stage changes in staging directory
-            stage_backup_dir = staging_dir / f"stage_{version_tag}"
-            stage_backup_dir.mkdir(parents=True, exist_ok=True)
-
-            # Copy current app to staging area
-            # Ignore staging/backups to avoid recursion
-            if self.codemate_dir.exists():
-                shutil.copytree(
-                    self.codemate_dir, 
-                    stage_backup_dir / "app", 
-                    ignore=shutil.ignore_patterns('backup_*', 'staging*')
-                )
-
-            # Apply changes to staged version
-            staged_manager = UpdateManager(self.middleware, str(stage_backup_dir / "app"))
-            success = staged_manager.apply_manifest_changes(manifest, version_tag)
-
-            if success:
-                # Commit staged changes to actual codemate directory
-                # We cannot delete codemate_dir if the staging dir is inside it.
-                # We use copytree with dirs_exist_ok=True to overwrite/update.
-                if sys.version_info >= (3, 8):
-                    shutil.copytree(stage_backup_dir / "app", self.codemate_dir, dirs_exist_ok=True)
-                else:
-                    # Fallback for older python: Manual copy/overwrite
-                    src_app = stage_backup_dir / "app"
-                    for item in src_app.rglob('*'):
-                        if item.is_file():
-                            rel_path = item.relative_to(src_app)
-                            dest_path = self.codemate_dir / rel_path
-                            dest_path.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(item, dest_path)
-
-            return success
-
-        except Exception as e:
-            print(f"Error in staged update: {e}")
-            return False
 
 def main():
     """Main entry point for the update script."""
