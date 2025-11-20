@@ -49,7 +49,7 @@ class Config:
     GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
     GITHUB_USERNAME = os.getenv('GITHUB_USERNAME')
     GITHUB_PASSWORD = os.getenv('GITHUB_PASSWORD')
-    DEFAULT_REPO = os.getenv('DEFAULT_REPO', 'Dhruv1969Karnwal/release-generator')
+    DEFAULT_REPO = os.getenv('DEFAULT_REPO', 'Dhruv1969Karnwal/up-test-rel')
     GITHUB_API_BASE = 'https://api.github.com'
     GITHUB_DOWNLOAD_BASE = 'https://github.com'
     CACHE_TTL = int(os.getenv('CACHE_TTL', '300'))  # 5 minutes
@@ -123,17 +123,34 @@ class GitHubClient:
                 )
     
     async def download_file(self, url: str) -> StreamingResponse:
-        """Download file from GitHub."""
+        """Download file from GitHub with authentication support."""
         logger.info(f"Downloading file from: {url}")
+        
+        # Enhanced headers for private repository access
+        headers = self.headers.copy()
+        if not headers.get('Authorization'):
+            # For public repositories, use GitHub API rate limiting headers
+            headers.update({
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': 'Updater-Middleware/1.0'
+            })
+        
         async with httpx.AsyncClient() as client:
             try:
-                response = await client.get(url, headers=self.headers)
+                response = await client.get(url, headers=headers)
                 if response.status_code == 200:
                     logger.info(f"Successfully downloaded file (size: {len(response.content)} bytes)")
                     return StreamingResponse(
                         iter([response.content]),
                         media_type="application/octet-stream"
                     )
+                elif response.status_code == 404:
+                    logger.error(f"File not found at URL: {url}")
+                    logger.debug(f"Response headers: {dict(response.headers)}")
+                    raise HTTPException(status_code=404, detail=f"File not found or not accessible: {url}")
+                elif response.status_code == 403:
+                    logger.error(f"Access forbidden - likely private repository or rate limit")
+                    raise HTTPException(status_code=403, detail="Access forbidden - check repository permissions or authentication")
                 else:
                     logger.error(f"Download failed with HTTP {response.status_code}: {response.text}")
                     raise HTTPException(
@@ -453,11 +470,39 @@ async def download_file(repo: str = None, version: str = None, path: str = None)
         # Normalize version by removing 'v' prefix to avoid double prefixes
         clean_version = version.lstrip('vV')
         
-        # Construct download URL for branch-based system
+        # Construct branch name for branch-based system
         branch_name = f"release/v{clean_version}"
-        download_url = f"{config.GITHUB_DOWNLOAD_BASE}/{repo}/blob/{branch_name}/release_v{clean_version}/codebase/code/{path}"
+        
+        # First try to use GitHub API (works for private repos with auth)
+        if config.GITHUB_TOKEN or (config.GITHUB_USERNAME and config.GITHUB_PASSWORD):
+            try:
+                # Use GitHub API to get file content
+                api_url = f"{config.GITHUB_API_BASE}/repos/{repo}/contents/{path}"
+                if branch_name != 'main':
+                    api_url += f"?ref={branch_name}"
+                
+                logger.info(f"Using GitHub API to download {path} from version {version}")
+                response_data = await github_client.get(f"repos/{repo}/contents/{path}?ref={branch_name}")
+                
+                if response_data.get('encoding') == 'base64' and 'content' in response_data:
+                    import base64
+                    content = base64.b64decode(response_data['content'])
+                    return StreamingResponse(
+                        iter([content]),
+                        media_type="application/octet-stream"
+                    )
+                else:
+                    # Fallback to raw URL if API doesn't work
+                    logger.warning("API download failed, trying raw URL")
+                    pass
+            except Exception as api_error:
+                logger.warning(f"API download failed: {api_error}")
+        
+        # Fallback: Construct raw content URL for public repositories
+        download_url = f"https://raw.githubusercontent.com/{repo}/{branch_name}/release_v{clean_version}/codebase/code/{path}"
         
         logger.info(f"Downloading {path} from version {version} (branch: {branch_name})")
+        logger.debug(f"URL: {download_url}")
         return await github_client.download_file(download_url)
         
     except Exception as e:
@@ -484,13 +529,14 @@ async def get_codebase_info(repo: str = None, version: str = None):
         urls = construct_branch_urls(version)
         
         # Extract codebase information
+        branch_name = f"release/v{clean_version}"
         codebase_info = {
             "version": manifest.get("version", clean_version),
-            "branch_name": f"release/v{clean_version}",
+            "branch_name": branch_name,
             "codebase": manifest.get("codebase", {}),
             "tree_url": urls['tree_url'],
             "manifest_url": urls['manifest_url'],
-            "download_base_url": f"{config.GITHUB_DOWNLOAD_BASE}/{repo}/raw/release/v{clean_version}/release_v{clean_version}/codebase",
+            "download_base_url": f"https://raw.githubusercontent.com/{repo}/{branch_name}/release_v{clean_version}/codebase",
             "commit_sha": None  # Will be populated if needed
         }
         
@@ -510,7 +556,71 @@ async def get_codebase_info(repo: str = None, version: str = None):
         logger.error(f"Error getting codebase info for version {version}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/debug/url/{version}/{path:path}")
+async def debug_url_construction(repo: str = None, version: str = None, path: str = None):
+    """Debug endpoint to check how URLs are constructed for troubleshooting."""
+    if not repo:
+        repo = config.DEFAULT_REPO
+    
+    if not version or not path:
+        raise HTTPException(status_code=400, detail="Version and path are required")
+    
+    # Normalize version
+    clean_version = version.lstrip('vV')
+    branch_name = f"release/v{clean_version}"
+    
+    # Construct URLs
+    raw_url = f"https://raw.githubusercontent.com/{repo}/{branch_name}/release_v{clean_version}/codebase/code/{path}"
+    blob_url = f"https://github.com/{repo}/blob/{branch_name}/release_v{clean_version}/codebase/code/{path}"
+    
+    # Test if file exists via API
+    api_url = f"repos/{repo}/contents/{path}?ref={branch_name}"
+    
+    debug_info = {
+        "input": {
+            "version": version,
+            "path": path,
+            "repo": repo
+        },
+        "constructed": {
+            "branch_name": branch_name,
+            "clean_version": clean_version,
+            "raw_url": raw_url,
+            "blob_url": blob_url,
+            "api_endpoint": api_url
+        },
+        "authentication": {
+            "github_token_configured": bool(config.GITHUB_TOKEN),
+            "github_basic_configured": bool(config.GITHUB_USERNAME and config.GITHUB_PASSWORD),
+            "has_authorization_header": bool(config.GITHUB_TOKEN or (config.GITHUB_USERNAME and config.GITHUB_PASSWORD))
+        },
+        "recommendations": [
+            "For private repositories, use GitHub API endpoint instead of raw URL",
+            "For public repositories, raw.githubusercontent.com should work",
+            "Ensure the file exists at the constructed path",
+            "Check that the branch name is correct"
+        ]
+    }
+    
+    return debug_info
+
 if __name__ == "__main__":
+    import uvicorn
+    
+    # Check if GitHub authentication is configured
+    if not config.GITHUB_TOKEN and not (config.GITHUB_USERNAME and config.GITHUB_PASSWORD):
+        logger.warning("No GitHub authentication configured. Rate limits will be restricted.")
+    
+    logger.info(f"Starting updater middleware server for repository: {config.DEFAULT_REPO}")
+    logger.info(f"GitHub authentication configured: {bool(config.GITHUB_TOKEN or config.GITHUB_PASSWORD)}")
+    
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level=config.LOG_LEVEL.lower()
+    )
     import uvicorn
     
     # Check if GitHub authentication is configured
