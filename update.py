@@ -14,7 +14,6 @@ import shutil
 import subprocess
 import urllib.request
 import urllib.error
-import tempfile
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 import platform
@@ -626,78 +625,90 @@ class UpdateManager:
             else:
                 print(f"[UPDATE] Sequential update through: {' → '.join(map(str, intermediate_versions))}")
             
-            # Create temporary directory for staged updates
-            with tempfile.TemporaryDirectory(prefix="update_") as temp_dir:
-                temp_path = Path(temp_dir)
-                print(f"[DIR] Working directory: {temp_path}")
-                
+            # Create persistent staging directory for updates
+            staging_dir = self.codemate_dir / "staging"
+            staging_dir.mkdir(parents=True, exist_ok=True)
+            print(f"[DIR] Staging directory: {staging_dir}")
+
+            try:
                 # Apply updates sequentially
                 for i, version_to_apply in enumerate(intermediate_versions):
                     print(f"\n{'='*40}")
                     print(f"STEP {i+1}/{len(intermediate_versions)}: {version_to_apply}")
                     print(f"{'='*40}")
-                    
+
                     # Get manifest for this version
                     manifest = self.middleware.get_release_manifest(str(version_to_apply))
                     if not manifest:
                         print(f"[ERROR] Could not find manifest for version {version_to_apply}")
                         return False
-                    
-                    # Apply changes with temporary staging
-                    if not self._apply_update_staged(manifest, str(version_to_apply), temp_path):
+
+                    # Apply changes with persistent staging
+                    if not self._apply_update_staged(manifest, str(version_to_apply), staging_dir):
                         print(f"[ERROR] Failed to apply update to version {version_to_apply}")
                         return False
-                    
+
                     print(f"[OK] Successfully updated to version {version_to_apply}")
-                    
+
                     # Update version file after successful step
                     if not self.save_version(version_to_apply):
                         print(f"[ERROR] Failed to save version {version_to_apply}")
                         return False
-                
-            print(f"\n🎉 Update completed successfully!")
-            print(f"[PACKAGE] Current version: {target_ver}")
-            print(f"[FILE] Version file: {self.version_file}")
-            
-            return True
+
+                # Cleanup staging directory after successful update
+                if staging_dir.exists():
+                    shutil.rmtree(staging_dir)
+                    print(f"[CLEANUP] Staging directory removed: {staging_dir}")
+
+                print(f"\n🎉 Update completed successfully!")
+                print(f"[PACKAGE] Current version: {target_ver}")
+                print(f"[FILE] Version file: {self.version_file}")
+
+                return True
+
+            except Exception as e:
+                print(f"[CRITICAL] Error during update: {e}")
+                # Leave staging directory for potential manual recovery
+                print(f"[WARNING] Staging directory preserved for recovery: {staging_dir}")
+                return False
             
         except Exception as e:
             print(f"[CRITICAL] Error during update: {e}")
             return False
     
-    def _apply_update_staged(self, manifest: Dict[str, Any], version_tag: str, temp_dir: Path) -> bool:
+    def _apply_update_staged(self, manifest: Dict[str, Any], version_tag: str, staging_dir: Path) -> bool:
         """
-        Apply update in temporary staging area before final commit.
-        
+        Apply update in persistent staging area before final commit.
+
         Args:
             manifest: Manifest data
             version_tag: Version tag
-            temp_dir: Temporary directory for staging
-            
+            staging_dir: Persistent staging directory for updates
+
         Returns:
             True if successful, False otherwise
         """
         try:
-            # Stage changes in temp directory first
-            stage_backup_dir = temp_dir / f"stage_{version_tag}"
+            # Stage changes in staging directory
+            stage_backup_dir = staging_dir / f"stage_{version_tag}"
             stage_backup_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Copy current app to staging area
             if self.app_root.exists():
                 shutil.copytree(self.app_root, stage_backup_dir / "app", ignore=shutil.ignore_patterns('backup_*'))
-            
+
             # Apply changes to staged version
             staged_manager = UpdateManager(self.middleware, str(stage_backup_dir / "app"))
             success = staged_manager.apply_manifest_changes(manifest, version_tag)
-            
+
             if success:
                 # Commit staged changes to actual app directory
                 if self.app_root.exists():
                     shutil.rmtree(self.app_root)
                 shutil.copytree(stage_backup_dir / "app", self.app_root)
-            
+
             return success
-            
+
         except Exception as e:
             print(f"Error in staged update: {e}")
             return False
