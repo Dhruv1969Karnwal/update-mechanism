@@ -455,7 +455,7 @@ async def download_file(repo: str = None, version: str = None, path: str = None)
         
         # Construct download URL for branch-based system
         branch_name = f"release/v{clean_version}"
-        download_url = f"{config.GITHUB_DOWNLOAD_BASE}/{repo}/blob/{branch_name}/release_v{clean_version}/codebase/{path}"
+        download_url = f"{config.GITHUB_DOWNLOAD_BASE}/{repo}/blob/{branch_name}/release_v{clean_version}/codebase/code/{path}"
         
         logger.info(f"Downloading {path} from version {version} (branch: {branch_name})")
         return await github_client.download_file(download_url)
