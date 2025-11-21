@@ -61,7 +61,10 @@ EXCLUDE_PATTERNS = [
     # System files that should not be overwritten
     '.DS_Store',
     'Thumbs.db',
-    'desktop.ini'
+    'desktop.ini',
+    'micromamba.exe',
+    'environment'
+
 ]
 
 
@@ -398,7 +401,7 @@ class UpdateManager:
             
             # Get manifest for installation
             if setup_tracker:
-                setup_tracker.update_phase_progress("codebase_update", "Fetching installation manifest", True, 15)
+                setup_tracker.update_phase_progress("codebase_update", "Fetching installation setup", True, 15)
             print(f"Getting manifest for version {target_ver}...")
             # Get manifest for installation
             print(f"Getting manifest for version {target_ver}...")
@@ -424,7 +427,7 @@ class UpdateManager:
             try:
                 # Apply manifest changes to staging directory
                 if setup_tracker:
-                    setup_tracker.update_phase_progress("codebase_update", "Setting up installation environment", True, 20)
+                    setup_tracker.update_phase_progress("codebase_update", "Setting up installation environment setup", True, 20)
                 staged_manager = UpdateManager(self.middleware, str(staging_dir))
                 # Apply manifest changes to staging directory
                 staged_manager = UpdateManager(self.middleware, str(staging_dir))

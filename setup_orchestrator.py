@@ -70,7 +70,7 @@ class SetupOrchestrator:
                     # Initialize phases only if they're not already in progress
                     phases = current_state.get("phases", {})
                     if phases.get("codebase_update", {}).get("status") == "pending":
-                        tracker.update_phase_progress("codebase_update", "Preparing for codebase update", True, 0)
+                        tracker.update_phase_progress("codebase_update", "Preparing for codebase setup", True, 0)
                     if phases.get("environment_verification", {}).get("status") == "pending":
                         tracker.update_phase_progress("environment_verification", "Preparing for environment verification", True, 0)
             
@@ -94,7 +94,7 @@ class SetupOrchestrator:
         """
         try:
             if setup_tracker:
-                setup_tracker.update_phase_progress("codebase_update", "Starting codebase update process", True, 5)
+                setup_tracker.update_phase_progress("codebase_update", "Starting codebase setup process", True, 5)
             
             print("\n" + "="*60)
             print("PHASE 1: CODEBASE UPDATE")
@@ -114,7 +114,7 @@ class SetupOrchestrator:
             )
             
             if result.returncode == 0:
-                print("✓ Codebase update completed successfully")
+                print("✓ Codebase setup completed successfully")
                 if setup_tracker:
                     setup_tracker.update_phase_progress("codebase_update", "Codebase update completed successfully", True, 100)
                 return True

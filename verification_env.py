@@ -494,9 +494,16 @@ def show_summary(state: State) -> bool:
 def main():
     """Main execution function"""
     # Initialize progress tracking for environment verification
+    # Reset phase FIRST, before any updates
     if setup_tracker:
-        setup_tracker.update_phase_progress("environment_verification", "Initializing environment verification", True, 5)
-        setup_tracker.update_overall_status("running")
+        current_state = setup_tracker.get_tracker().load_setup_state()
+        if "environment_verification" in current_state["phases"]:
+            current_state["phases"]["environment_verification"]["progress"] = 0
+            current_state["phases"]["environment_verification"]["status"] = "pending"
+            current_state["phases"]["environment_verification"]["current_step"] = "Initializing environment verification"
+            current_state["phases"]["environment_verification"]["steps_completed"] = []
+            setup_tracker.get_tracker()._safe_atomic_write(current_state)
+
     
     print("")
     print("=" * 40)
