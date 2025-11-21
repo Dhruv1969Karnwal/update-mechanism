@@ -25,6 +25,11 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 import platform
 import version
+try:
+    import setup_tracker
+except ImportError:
+    # Fallback when setup_tracker is not available (backward compatibility)
+    setup_tracker = None
 
 # Define exclude patterns for permanent files/folders
 EXCLUDE_PATTERNS = [
@@ -354,6 +359,14 @@ class UpdateManager:
         Perform initial installation for fresh installations using staging.
         
         Args:
+        try:
+            # Initialize progress tracking for codebase update
+            if setup_tracker:
+                setup_tracker.update_phase_progress("codebase_update", "Initializing codebase update process", True, 5)
+            
+            print("=" * 60)
+            print("FRESH INSTALLATION FLOW")
+            print("=" * 60)
             target_version: Target version to install
             
         Returns:
@@ -366,6 +379,9 @@ class UpdateManager:
             
             target_ver = version.Version(target_version)
             
+            # Initialize progress tracking for codebase retrieval
+            if setup_tracker:
+                setup_tracker.update_phase_progress("codebase_update", "Retrieving system information from remote server", True, 10)
             # Get codebase information
             print(f"Getting codebase information for version {target_ver}...")
             codebase_info = self.middleware.get_codebase_info(str(target_ver))
@@ -373,12 +389,24 @@ class UpdateManager:
             print(f"CODEBASE INFO FROM URL /codebase/version-no. {json.dumps(codebase_info, indent=2)}")
 
             if not codebase_info:
+                if setup_tracker:
+                    setup_tracker.mark_phase_failed("codebase_update", "Failed to retrieve system information")
+                print(f"Could not get codebase info for version {target_ver}")
+            if not codebase_info:
                 print(f"Could not get codebase info for version {target_ver}")
                 return False
             
             # Get manifest for installation
+            if setup_tracker:
+                setup_tracker.update_phase_progress("codebase_update", "Fetching installation manifest", True, 15)
+            print(f"Getting manifest for version {target_ver}...")
+            # Get manifest for installation
             print(f"Getting manifest for version {target_ver}...")
             manifest = self.middleware.get_release_manifest(str(target_ver))
+            if not manifest:
+                if setup_tracker:
+                    setup_tracker.mark_phase_failed("codebase_update", "Installation manifest not found")
+                print(f"Could not find manifest for version {target_ver}")
             if not manifest:
                 print(f"Could not find manifest for version {target_ver}")
                 return False
@@ -394,6 +422,10 @@ class UpdateManager:
             print(f"[STAGING] Created staging directory: {staging_dir}")
             
             try:
+                # Apply manifest changes to staging directory
+                if setup_tracker:
+                    setup_tracker.update_phase_progress("codebase_update", "Setting up installation environment", True, 20)
+                staged_manager = UpdateManager(self.middleware, str(staging_dir))
                 # Apply manifest changes to staging directory
                 staged_manager = UpdateManager(self.middleware, str(staging_dir))
                 if not staged_manager.apply_manifest_changes(manifest, str(target_ver), is_installation=True):

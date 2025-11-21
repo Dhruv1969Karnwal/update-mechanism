@@ -20,6 +20,13 @@ import shutil
 from pathlib import Path
 from typing import List, Tuple, Optional
 
+# Setup tracker import for progress tracking
+try:
+    import setup_tracker
+except ImportError:
+    # Fallback when setup_tracker is not available (backward compatibility)
+    setup_tracker = None
+
 # Configuration - Server variables that can be modified later via environment variables
 class Config:
     # Server configuration - easily configurable
@@ -120,6 +127,9 @@ def fetch_requirements_from_server(version: str = None) -> Optional[str]:
 
 def test_internet_connection(state: State) -> bool:
     """Test internet connectivity"""
+    if setup_tracker:
+        setup_tracker.update_phase_progress("environment_verification", "Checking network connectivity", True, 10)
+    
     write_status("Checking internet connectivity...", "Info")
     try:
         response = requests.get("https://www.google.com", timeout=5)
@@ -157,6 +167,9 @@ def get_micromamba_url() -> str:
 
 def test_micromamba_installation(state: State) -> bool:
     """Check for micromamba installation and download if missing"""
+    if setup_tracker:
+        setup_tracker.update_phase_progress("environment_verification", "Checking package manager installation", True, 15)
+    
     write_status("Checking micromamba installation...", "Info")
     
     if Config.MICROMAMBA_PATH.exists():
@@ -205,6 +218,9 @@ def get_python_path() -> Optional[Path]:
 
 def test_python_environment(state: State) -> bool:
     """Check Python environment"""
+    if setup_tracker:
+        setup_tracker.update_phase_progress("environment_verification", "Validating Python runtime environment", True, 25)
+    
     write_status("Checking Python environment...", "Info")
     
     python_path = get_python_path()
@@ -261,6 +277,9 @@ def create_python_environment(state: State) -> bool:
 
 def test_python_packages(state: State) -> bool:
     """Check and install Python packages using server integration"""
+    if setup_tracker:
+        setup_tracker.update_phase_progress("environment_verification", "Installing required application packages", True, 35)
+    
     write_status("Checking Python packages...", "Info")
     
     python_path = get_python_path()
@@ -304,6 +323,9 @@ def test_python_packages(state: State) -> bool:
 
 def test_required_files(state: State) -> bool:
     """Check for required application files"""
+    if setup_tracker:
+        setup_tracker.update_phase_progress("environment_verification", "Verifying application files", True, 45)
+    
     write_status("Checking required files...", "Info")
     
     current_dir = Path.cwd()
@@ -327,6 +349,9 @@ def test_required_files(state: State) -> bool:
 
 def test_qdrant_binary(state: State) -> bool:
     """Check for Qdrant binary"""
+    if setup_tracker:
+        setup_tracker.update_phase_progress("environment_verification", "Checking vector database components", True, 55)
+    
     write_status("Checking Qdrant binary...", "Info")
     
     # Qdrant will be downloaded by initiate.py if not present
@@ -350,6 +375,9 @@ def test_qdrant_binary(state: State) -> bool:
 
 def test_system_requirements(state: State) -> bool:
     """Check system requirements"""
+    if setup_tracker:
+        setup_tracker.update_phase_progress("environment_verification", "Analyzing system requirements", True, 65)
+    
     write_status("Checking system requirements...", "Info")
     
     # Check disk space
@@ -465,6 +493,11 @@ def show_summary(state: State) -> bool:
 
 def main():
     """Main execution function"""
+    # Initialize progress tracking for environment verification
+    if setup_tracker:
+        setup_tracker.update_phase_progress("environment_verification", "Initializing environment verification", True, 5)
+        setup_tracker.update_overall_status("running")
+    
     print("")
     print("=" * 40)
     print(f"{Colors.CYAN}  CodeMate Environment Verification{Colors.RESET}")
@@ -486,11 +519,18 @@ def main():
     system_ok = test_system_requirements(state)
     
     # Check required ports
+    if setup_tracker:
+        setup_tracker.update_phase_progress("environment_verification", "Verifying service ports", True, 75)
+    
     write_status("Checking required ports...", "Info")
     test_port_available(Config.HTTP_SERVER_PORT, "HTTP Server")
     test_port_available(Config.WEBSOCKET_SERVER_PORT, "WebSocket Server") 
     test_port_available(Config.QDRANT_PORT, "Qdrant")
     test_port_available(Config.OLLAMA_PORT, "Ollama")
+    
+    # Final progress update
+    if setup_tracker:
+        setup_tracker.update_phase_progress("environment_verification", "Environment verification completed", True, 100)
     
     # Show summary
     success = show_summary(state)
