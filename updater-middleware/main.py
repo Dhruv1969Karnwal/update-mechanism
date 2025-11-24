@@ -9,8 +9,12 @@ Enhanced to support branch-based releases instead of tags.
 import os
 import asyncio
 import logging
+import subprocess
+import tempfile
+import shutil
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -514,20 +518,20 @@ async def get_codebase_info(repo: str = None, version: str = None):
     """Get information about the codebase structure for a branch-based release."""
     if not repo:
         repo = config.DEFAULT_REPO
-    
+
     if not version:
         raise HTTPException(status_code=400, detail="Version parameter is required")
-    
+
     try:
         # Normalize version by removing 'v' prefix to avoid double prefixes
         clean_version = version.lstrip('vV')
-        
+
         # Get manifest first
         manifest = await get_manifest(repo, version)
-        
+
         # Construct branch URLs
         urls = construct_branch_urls(version)
-        
+
         # Extract codebase information
         branch_name = f"release/v{clean_version}"
         codebase_info = {
@@ -539,7 +543,7 @@ async def get_codebase_info(repo: str = None, version: str = None):
             "download_base_url": f"https://raw.githubusercontent.com/{repo}/{branch_name}/release_v{clean_version}/codebase",
             "commit_sha": None  # Will be populated if needed
         }
-        
+
         # Try to get commit SHA for this version
         try:
             branch_endpoint = f"repos/{repo}/branches/release/{clean_version}"
@@ -548,12 +552,75 @@ async def get_codebase_info(repo: str = None, version: str = None):
         except:
             # Branch might not exist, continue without commit SHA
             pass
-        
+
         logger.info(f"Successfully fetched codebase info for version {version}")
         return codebase_info
-        
+
     except Exception as e:
         logger.error(f"Error getting codebase info for version {version}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/clone_codebase/{version}")
+async def clone_codebase(repo: str = None, version: str = None):
+    """Clone repository, checkout branch, and extract all files from codebase/code directory."""
+    if not repo:
+        repo = config.DEFAULT_REPO
+
+    if not version:
+        raise HTTPException(status_code=400, detail="Version parameter is required")
+
+    try:
+        clean_version = version.lstrip('vV')
+        branch_name = f"release/v{clean_version}"
+        repo_url = f"https://github.com/{repo}"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Clone repo
+            subprocess.run(["git", "clone", repo_url, temp_dir], check=True, capture_output=True, text=True)
+
+            # Checkout branch
+            subprocess.run(["git", "checkout", branch_name], cwd=temp_dir, check=True, capture_output=True, text=True)
+
+            # Check README
+            release_folder = Path(temp_dir) / f"release_v{clean_version}"
+            readme_file = release_folder / "README.md"
+            if not readme_file.exists():
+                logger.warning(f"README.md not found in {release_folder}")
+
+            # Extract all files from codebase/code
+            codebase_code = release_folder / "codebase" / "code"
+            if not codebase_code.exists():
+                raise HTTPException(status_code=404, detail=f"Codebase code directory not found: {codebase_code}")
+
+            files_dict = {}
+
+            def collect_files(base_path, rel_path=""):
+                for item in base_path.iterdir():
+                    item_rel_path = f"{rel_path}/{item.name}" if rel_path else item.name
+                    if item.is_file():
+                        try:
+                            with open(item, 'r', encoding='utf-8') as f:
+                                content = f.read()
+                            files_dict[item_rel_path] = {"content": content, "is_binary": False}
+                        except UnicodeDecodeError:
+                            # Binary file
+                            with open(item, 'rb') as f:
+                                content = f.read()
+                            import base64
+                            files_dict[item_rel_path] = {"content": base64.b64encode(content).decode('utf-8'), "is_binary": True}
+                    elif item.is_dir():
+                        collect_files(item, item_rel_path)
+
+            collect_files(codebase_code)
+
+            logger.info(f"Successfully cloned and extracted {len(files_dict)} files for version {version}")
+            return {"files": files_dict}
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Git operation failed: {e.stderr}")
+        raise HTTPException(status_code=500, detail=f"Git operation failed: {e.stderr}")
+    except Exception as e:
+        logger.error(f"Error cloning codebase for version {version}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/debug/url/{version}/{path:path}")
@@ -603,6 +670,11 @@ async def debug_url_construction(repo: str = None, version: str = None, path: st
     }
     
     return debug_info
+
+@app.get("/setup_script")
+async def get_setup_script():
+    """Return a short setup script for pre-setup execution."""
+    return {"script": "echo 'Pre-setup script executed from middleware'"}
 
 if __name__ == "__main__":
     import uvicorn

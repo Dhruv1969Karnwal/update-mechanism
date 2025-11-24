@@ -227,10 +227,10 @@ class MiddlewareUpdater:
     def get_codebase_info(self, version_tag: str) -> Optional[Dict[str, Any]]:
         """
         Get codebase information for a release.
-        
+
         Args:
             version_tag: Version tag
-            
+
         Returns:
             Codebase information or None if not found
         """
@@ -238,10 +238,32 @@ class MiddlewareUpdater:
             tag = version_tag.lstrip('vV')
             if not tag.startswith('v'):
                 tag = f'v{tag}'
-            
+
             return self._make_request(f"/codebase/{tag}")
         except Exception as e:
             print(f"Error getting codebase info: {e}")
+            return None
+
+    def clone_codebase(self, version_tag: str) -> Optional[Dict[str, Any]]:
+        """
+        Clone repository and get all codebase files for a specific release.
+
+        Args:
+            version_tag: Version tag (e.g., "v1.2.3" or "1.2.3")
+
+        Returns:
+            Dict with files data or None if not found
+        """
+        try:
+            tag = version_tag.lstrip('vV')
+            if not tag.startswith('v'):
+                tag = f'v{tag}'
+
+            endpoint = f"/clone_codebase/{tag}"
+            return self._make_request(endpoint)
+
+        except Exception as e:
+            print(f"Error cloning codebase: {e}")
             return None
 
 
@@ -382,70 +404,51 @@ class UpdateManager:
             
             target_ver = version.Version(target_version)
             
-            # Initialize progress tracking for codebase retrieval
+            # Get codebase files and download for fresh install
             if setup_tracker:
                 setup_tracker.update_phase_progress("codebase_update", "Retrieving system information from remote server", True, 10)
-            # Get codebase information
-            print(f"Getting codebase information for version {target_ver}...")
-            codebase_info = self.middleware.get_codebase_info(str(target_ver))
-            
-            print(f"CODEBASE INFO FROM URL /codebase/version-no. {json.dumps(codebase_info, indent=2)}")
-
-            if not codebase_info:
-                if setup_tracker:
-                    setup_tracker.mark_phase_failed("codebase_update", "Failed to retrieve system information")
-                print(f"Could not get codebase info for version {target_ver}")
-            if not codebase_info:
-                print(f"Could not get codebase info for version {target_ver}")
-                return False
-            
-            # Get manifest for installation
-            if setup_tracker:
-                setup_tracker.update_phase_progress("codebase_update", "Fetching installation setup", True, 15)
-            print(f"Getting manifest for version {target_ver}...")
-            # Get manifest for installation
-            print(f"Getting manifest for version {target_ver}...")
-            manifest = self.middleware.get_release_manifest(str(target_ver))
-            if not manifest:
-                if setup_tracker:
-                    setup_tracker.mark_phase_failed("codebase_update", "Installation manifest not found")
-                print(f"Could not find manifest for version {target_ver}")
-            if not manifest:
-                print(f"Could not find manifest for version {target_ver}")
-                return False
-            
-            print(f"Installing version {target_ver}...")
+            print(f"Getting codebase files for version {target_ver}...")
             print(f"Platform: {platform.system()}")
             print(f"Architecture: {platform.machine()}")
             print(f"Installation Directory: {self.codemate_dir}")
-            
+
             # Create staging directory for fresh install
             staging_dir = self.codemate_dir.parent / f"{self.codemate_dir.name}.staging"
             staging_dir.mkdir(parents=True, exist_ok=True)
             print(f"[STAGING] Created staging directory: {staging_dir}")
-            
+
             try:
-                # Apply manifest changes to staging directory
-                if setup_tracker:
-                    setup_tracker.update_phase_progress("codebase_update", "Setting up installation environment setup", True, 20)
-                if setup_tracker:
-                    setup_tracker.update_phase_progress("codebase_update", "Creating staging directory", True, 25)
-                staged_manager = UpdateManager(self.middleware, str(staging_dir))
-                # Apply manifest changes to staging directory
-                if setup_tracker:
-                    setup_tracker.update_phase_progress("codebase_update", "Applying manifest changes to staging", True, 30)
-                staged_manager = UpdateManager(self.middleware, str(staging_dir))
-                if not staged_manager.apply_manifest_changes(manifest, str(target_ver), is_installation=True):
-                    print("[ERROR] Failed to download files to staging")
+                # Get cloned codebase data
+                codebase_data = self.middleware.clone_codebase(str(target_ver))
+                if not codebase_data:
+                    if setup_tracker:
+                        setup_tracker.mark_phase_failed("codebase_update", "Failed to download")
+                    print(f"Could not clone codebase for version {target_ver}")
                     return False
-                
-                print("[STAGING] All downloads completed successfully")
+
+                files_dict = codebase_data.get('files', {})
+                print(f"Received {len(files_dict)} files")
+
+                # Write all files to staging
+                for file_path, file_info in files_dict.items():
+                    target_path = staging_dir / file_path
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+                    if file_info.get('is_binary', False):
+                        import base64
+                        content = base64.b64decode(file_info['content'])
+                        with open(target_path, 'wb') as f:
+                            f.write(content)
+                    else:
+                        with open(target_path, 'w', encoding='utf-8') as f:
+                            f.write(file_info['content'])
+
+                print("[STAGING] All files written successfully")
                 if setup_tracker:
                     setup_tracker.update_phase_progress("codebase_update", "Downloads completed", True, 35)
 
                 # Move staging to final destination
                 if setup_tracker:
-                    setup_tracker.update_phase_progress("codebase_update", "Moving staged files to final destination", True, 40)
+                    setup_tracker.update_phase_progress("codebase_update", "Moving staged files to final destination", True, 45)
                 print("[COMMIT] Moving staged files to final destination...")
                 if sys.version_info >= (3, 8):
                     shutil.copytree(staging_dir, self.codemate_dir, dirs_exist_ok=True)
@@ -459,7 +462,7 @@ class UpdateManager:
 
                 # Save version
                 if setup_tracker:
-                    setup_tracker.update_phase_progress("codebase_update", "Saving version information", True, 50)
+                    setup_tracker.update_phase_progress("codebase_update", "Saving version information", True, 60)
                 if not self.save_version(target_ver):
                     print("Failed to save version")
                     return False
@@ -468,7 +471,7 @@ class UpdateManager:
                 print(f"Version {target_ver} has been installed.")
                 print(f"Version file: {self.version_file}")
                 if setup_tracker:
-                    setup_tracker.update_phase_progress("codebase_update", "Installation completed successfully", True, 60)
+                    setup_tracker.update_phase_progress("codebase_update", "Installation completed successfully", True, 80)
 
                 return True
                 
@@ -482,7 +485,7 @@ class UpdateManager:
                     shutil.rmtree(staging_dir)
                     print(f"[CLEANUP] Staging directory removed: {staging_dir}")
                     if setup_tracker:
-                        setup_tracker.update_phase_progress("codebase_update", "Cleanup completed", True, 70)
+                        setup_tracker.update_phase_progress("codebase_update", "Cleanup completed", True, 100)
             
         except Exception as e:
             print(f"Error during installation: {e}")

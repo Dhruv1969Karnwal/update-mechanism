@@ -9,6 +9,7 @@ import sys
 import subprocess
 import argparse
 import json
+import requests
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -83,7 +84,29 @@ class SetupOrchestrator:
             print(f"[FAIL] Failed to initialize setup state: {e}")
             return False
 
-
+    def run_pre_setup_script(self) -> None:
+        """
+        Run a pre-setup script from the middleware server if available.
+        This is an optional step - if no script is provided or server unavailable, proceed.
+        """
+        try:
+            response = requests.get("http://localhost:8000/setup_script", timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                script = data.get("script")
+                if script and script.strip():
+                    print("Executing pre-setup script...")
+                    result = subprocess.run(script, shell=True, capture_output=True, text=True)
+                    if result.returncode == 0:
+                        print("✓ Pre-setup script executed successfully")
+                    else:
+                        print(f"[WARN] Pre-setup script failed: {result.stderr}")
+                else:
+                    print("No pre-setup script provided, proceeding...")
+            else:
+                print("Failed to get pre-setup script, proceeding...")
+        except Exception as e:
+            print(f"Error getting/executing pre-setup script: {e}, proceeding...")
 
     def run_codebase_update(self) -> bool:
         """
@@ -237,7 +260,10 @@ class SetupOrchestrator:
             # Step 1: Initialize setup state
             if not self.initialize_setup_state():
                 return 1
-            
+
+            # Step 1.5: Run pre-setup script
+            self.run_pre_setup_script()
+
             # Step 2: Run codebase update
             update_success = self.run_codebase_update()
             
