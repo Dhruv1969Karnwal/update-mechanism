@@ -1,0 +1,34 @@
+{
+"limits": {
+    "cloud_kb": -1,
+"image": -1,
+"autocomplete": -1,
+"local_kb": -1,
+"internet_search": -1,
+"rpm": 55,
+"cepm": 62,
+"access": {
+"chat": true,
+"context": {
+"git": true,
+"commits": false,
+"docs": true,
+"codebase": {
+"local": false,
+"cloud": true,
+"current": false
+}
+},
+"modes": {
+"eco": true,
+"normal": false,
+"pro": true
+},
+"internet_search": true,
+"byok": false,
+"access_tokens": false,
+"code_evaluation": false
+}
+},
+"name": "working clone"
+}

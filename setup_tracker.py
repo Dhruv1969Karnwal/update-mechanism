@@ -256,7 +256,8 @@ class SetupStateTracker:
         
         # Calculate dynamic progress for this phase
         current_progress = phase_data["progress"]
-        max_progress = min(100, current_progress + additional_progress)
+        # max_progress = min(100, current_progress + additional_progress)
+        max_progress = min(100, additional_progress)
         phase_data["progress"] = max_progress
         
         # Update overall progress using cumulative calculation

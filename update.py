@@ -428,16 +428,24 @@ class UpdateManager:
                 # Apply manifest changes to staging directory
                 if setup_tracker:
                     setup_tracker.update_phase_progress("codebase_update", "Setting up installation environment setup", True, 20)
+                if setup_tracker:
+                    setup_tracker.update_phase_progress("codebase_update", "Creating staging directory", True, 25)
                 staged_manager = UpdateManager(self.middleware, str(staging_dir))
                 # Apply manifest changes to staging directory
+                if setup_tracker:
+                    setup_tracker.update_phase_progress("codebase_update", "Applying manifest changes to staging", True, 30)
                 staged_manager = UpdateManager(self.middleware, str(staging_dir))
                 if not staged_manager.apply_manifest_changes(manifest, str(target_ver), is_installation=True):
                     print("[ERROR] Failed to download files to staging")
                     return False
                 
                 print("[STAGING] All downloads completed successfully")
-                
+                if setup_tracker:
+                    setup_tracker.update_phase_progress("codebase_update", "Downloads completed", True, 35)
+
                 # Move staging to final destination
+                if setup_tracker:
+                    setup_tracker.update_phase_progress("codebase_update", "Moving staged files to final destination", True, 40)
                 print("[COMMIT] Moving staged files to final destination...")
                 if sys.version_info >= (3, 8):
                     shutil.copytree(staging_dir, self.codemate_dir, dirs_exist_ok=True)
@@ -448,8 +456,10 @@ class UpdateManager:
                     shutil.move(str(staging_dir), str(self.codemate_dir))
                 
                 print(f"[OK] Files moved successfully to {self.codemate_dir}")
-                
+
                 # Save version
+                if setup_tracker:
+                    setup_tracker.update_phase_progress("codebase_update", "Saving version information", True, 50)
                 if not self.save_version(target_ver):
                     print("Failed to save version")
                     return False
@@ -457,7 +467,9 @@ class UpdateManager:
                 print(f"\n[OK] Fresh installation completed successfully!")
                 print(f"Version {target_ver} has been installed.")
                 print(f"Version file: {self.version_file}")
-                
+                if setup_tracker:
+                    setup_tracker.update_phase_progress("codebase_update", "Installation completed successfully", True, 60)
+
                 return True
                 
             except Exception as e:
@@ -469,6 +481,8 @@ class UpdateManager:
                 if staging_dir.exists():
                     shutil.rmtree(staging_dir)
                     print(f"[CLEANUP] Staging directory removed: {staging_dir}")
+                    if setup_tracker:
+                        setup_tracker.update_phase_progress("codebase_update", "Cleanup completed", True, 70)
             
         except Exception as e:
             print(f"Error during installation: {e}")
@@ -526,9 +540,17 @@ class UpdateManager:
                     backup_staging_dir / "original",
                     ignore=exclude_func
                 )
-                
+
                 print(f"[BACKUP] Safe backup created with exclude patterns")
                 print(f"         Excluded: {EXCLUDE_PATTERNS}")
+                print(f"[BACKUP] Files and folders copied to backup_staging:")
+                for root, dirs, files in os.walk(backup_staging_dir / "original"):
+                    level = root.replace(str(backup_staging_dir / "original"), '').count(os.sep)
+                    indent = ' ' * 2 * level
+                    print(f"{indent}{os.path.basename(root)}/")
+                    subindent = ' ' * 2 * (level + 1)
+                    for file in files:
+                        print(f"{subindent}{file}")
                 
             return True
             
@@ -570,11 +592,17 @@ class UpdateManager:
                 
                 print(f"[DIR] Codebase directory: {codebase.get('directory', 'N/A')}")
                 print(f"[TOOLS] Total files to process: {len(files_add) + len(files_edit) + len(files_delete)}")
+                print(f"[FILES] Files to add: {files_add}")
+                print(f"[FILES] Files to edit: {files_edit}")
+                print(f"[FILES] Files to delete: {files_delete}")
             else:
                 # Legacy manifest format
                 files_add = manifest.get('files_add', [])
                 files_edit = manifest.get('files_edit', [])
                 files_delete = manifest.get('files_delete', [])
+                print(f"[FILES] Files to add: {files_add}")
+                print(f"[FILES] Files to edit: {files_edit}")
+                print(f"[FILES] Files to delete: {files_delete}")
             
             success_count = 0
             total_operations = 0
@@ -799,14 +827,20 @@ class UpdateManager:
             print("=" * 60)
             print(f"Current version: {current_ver}")
             print(f"Target version: {target_ver}")
-            
+            if setup_tracker:
+                setup_tracker.update_phase_progress("codebase_update", "Initializing update process", True, 10)
+
             if not self.validate_update_permissions(current_ver, target_ver):
+                if setup_tracker:
+                    setup_tracker.update_phase_progress("codebase_update", "Validating update permissions", True, 15)
                 print("[ERROR] Update not permitted or cancelled by user")
                 return False
             
             # Get intermediate versions for sequential update
             intermediate_versions = version.find_intermediate_versions(current_ver, target_ver)
-            
+            if setup_tracker:
+                setup_tracker.update_phase_progress("codebase_update", "Determining update path", True, 20)
+
             if not intermediate_versions:
                 print(f"[TARGET] Direct update to {target_ver}")
                 intermediate_versions = [target_ver]
@@ -817,10 +851,14 @@ class UpdateManager:
             backup_staging_dir = self.codemate_dir.parent / "backup_staging"
             backup_staging_dir.mkdir(parents=True, exist_ok=True)
             print(f"[BACKUP_STAGING] Directory: {backup_staging_dir}")
+            if setup_tracker:
+                setup_tracker.update_phase_progress("codebase_update", "Creating backup staging directory", True, 25)
 
             try:
                 # For updates, create safe backup staging first
                 if not self._create_safe_backup_staging(backup_staging_dir, str(target_ver)):
+                    if setup_tracker:
+                        setup_tracker.update_phase_progress("codebase_update", "Creating safe backup", True, 30)
                     print("[ERROR] Failed to create backup staging")
                     return False
 
@@ -829,9 +867,13 @@ class UpdateManager:
                     print(f"\n{'='*40}")
                     print(f"STEP {i+1}/{len(intermediate_versions)}: {version_to_apply}")
                     print(f"{'='*40}")
+                    if setup_tracker:
+                        setup_tracker.update_phase_progress("codebase_update", f"Processing version {version_to_apply}", True, 35)
 
                     # Get manifest for this version
                     manifest = self.middleware.get_release_manifest(str(version_to_apply))
+                    if setup_tracker:
+                        setup_tracker.update_phase_progress("codebase_update", f"Fetching manifest for version {version_to_apply}", True, 40)
                     if not manifest:
                         print(f"[ERROR] Could not find manifest for version {version_to_apply}")
                         return False
@@ -840,11 +882,15 @@ class UpdateManager:
                     if not self.apply_manifest_changes(manifest, str(version_to_apply), is_installation=False):
                         print(f"[ERROR] Failed to apply update to version {version_to_apply}")
                         return False
+                    if setup_tracker:
+                        setup_tracker.update_phase_progress("codebase_update", f"Applying changes for version {version_to_apply}", True, 45)
 
                     print(f"[OK] Successfully updated to version {version_to_apply}")
 
                     # Update version file after successful step
                     if not self.save_version(version_to_apply):
+                        if setup_tracker:
+                            setup_tracker.update_phase_progress("codebase_update", f"Saving version {version_to_apply}", True, 50)
                         print(f"[ERROR] Failed to save version {version_to_apply}")
                         return False
 
@@ -852,10 +898,14 @@ class UpdateManager:
                 if backup_staging_dir.exists():
                     shutil.rmtree(backup_staging_dir)
                     print(f"[CLEANUP] Backup staging directory removed: {backup_staging_dir}")
+                    if setup_tracker:
+                        setup_tracker.update_phase_progress("codebase_update", "Cleanup completed", True, 55)
 
                 print(f"\n🎉 Update completed successfully!")
                 print(f"[PACKAGE] Current version: {target_ver}")
                 print(f"[FILE] Version file: {self.version_file}")
+                # if setup_tracker:
+                    # setup_tracker.update_phase_progress("codebase_update", "Update completed successfully", True, 60)
 
                 return True
 
