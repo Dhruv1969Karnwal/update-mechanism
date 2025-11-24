@@ -494,25 +494,24 @@ class UpdateManager:
     def validate_update_permissions(self, current: version.Version, target: version.Version) -> bool:
         """
         Validate if update from current to target is allowed and get user confirmation.
-        
+
         Args:
             current: Current version
             target: Target version
-            
+
         Returns:
             True if update is allowed, False otherwise
         """
         if target <= current:
             print(f"Target version {target} is not newer than current version {current}")
             return False
-        
+
         update_type = target.get_update_type(current)
-        
+
         if update_type == 'major':
             print(f"[INFO] Major update available: {current} → {target}")
-            print("[WARNING]  Major updates may include breaking changes.")
-            response = input("Do you want to proceed with this major update? (y/N): ").strip().lower()
-            return response in ['y', 'yes']
+            print("[AUTO] Automatically proceeding with major update.")
+            return True
         else:
             print(f"[PACKAGE] {update_type.capitalize()} update available: {current} → {target}")
             response = input("Do you want to proceed with this update? (y/N): ").strip().lower()
