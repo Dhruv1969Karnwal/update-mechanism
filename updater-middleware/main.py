@@ -572,10 +572,27 @@ async def clone_codebase(repo: str = None, version: str = None):
     try:
         clean_version = version.lstrip('vV')
         branch_name = f"release/v{clean_version}"
-        repo_url = f"https://github.com/{repo}"
+
+        # Construct authenticated repo URL for private repositories
+        logger.info(f"GITHUB_TOKEN present: {bool(config.GITHUB_TOKEN)}")
+        logger.info(f"GITHUB_USERNAME present: {bool(config.GITHUB_USERNAME)}")
+        logger.info(f"GITHUB_PASSWORD present: {bool(config.GITHUB_PASSWORD)}")
+
+        if config.GITHUB_TOKEN:
+            repo_url = f"https://{config.GITHUB_TOKEN}@github.com/{repo}"
+            logger.info(f"Using token-based authentication for repo: {repo}")
+        elif config.GITHUB_USERNAME and config.GITHUB_PASSWORD:
+            repo_url = f"https://{config.GITHUB_USERNAME}:{config.GITHUB_PASSWORD}@github.com/{repo}"
+            logger.info(f"Using username/password authentication for repo: {repo}")
+        else:
+            repo_url = f"https://github.com/{repo}"
+            logger.warning("No GitHub authentication configured - clone may fail for private repositories")
+            logger.warning("Please set GITHUB_TOKEN in .env file for private repository access")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             # Clone repo
+            logger.info(f"Cloning repository: {repo_url.replace(config.GITHUB_TOKEN or '', '***TOKEN***')}")
+            logger.info(f"Target branch: {branch_name}")
             subprocess.run(["git", "clone", repo_url, temp_dir], check=True, capture_output=True, text=True)
 
             # Checkout branch
@@ -677,22 +694,6 @@ async def get_setup_script():
     return {"script": "echo 'Pre-setup script executed from middleware'"}
 
 if __name__ == "__main__":
-    import uvicorn
-    
-    # Check if GitHub authentication is configured
-    if not config.GITHUB_TOKEN and not (config.GITHUB_USERNAME and config.GITHUB_PASSWORD):
-        logger.warning("No GitHub authentication configured. Rate limits will be restricted.")
-    
-    logger.info(f"Starting updater middleware server for repository: {config.DEFAULT_REPO}")
-    logger.info(f"GitHub authentication configured: {bool(config.GITHUB_TOKEN or config.GITHUB_PASSWORD)}")
-    
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level=config.LOG_LEVEL.lower()
-    )
     import uvicorn
     
     # Check if GitHub authentication is configured
