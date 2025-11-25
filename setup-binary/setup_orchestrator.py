@@ -20,6 +20,17 @@ except ImportError:
     print("Warning: setup_tracker not available. Running in standalone mode.")
     setup_tracker = None
 
+# Import update and verification_env modules for direct execution in binary
+try:
+    import update
+except ImportError:
+    update = None
+
+try:
+    import verification_env
+except ImportError:
+    verification_env = None
+
 
 class SetupOrchestrator:
     """Coordinates the complete setup process."""
@@ -123,26 +134,32 @@ class SetupOrchestrator:
             print("PHASE 1: CODEBASE UPDATE")
             print("="*60)
             
-            # Run update.py with the version argument
-            cmd = [sys.executable, "update.py", self.version]
-            
-            print(f"Executing: {' '.join(cmd)}")
-            
-            # Execute the update process
-            result = subprocess.run(
-                cmd,
-                capture_output=False,  # Let output flow through for user visibility
-                text=True,
-                cwd=Path.cwd()
-            )
-            
-            if result.returncode == 0:
+            # Run update.py with the version argument via direct import
+            if update:
+                import sys
+                # Temporarily modify sys.argv to simulate command-line args
+                original_argv = sys.argv
+                sys.argv = ["update.py", self.version]  # Simulate args for update.py
+                try:
+                    update.main()  # Call update's main function
+                    success = True  # Assume success if no exception
+                except SystemExit as e:
+                    success = (e.code == 0)  # Check exit code
+                finally:
+                    sys.argv = original_argv  # Restore original argv
+            else:
+                print("[FAIL] update module not available")
+                success = False
+
+            print(f"Executing: update.main() with version {self.version}")
+
+            if success:
                 print("✓ Codebase setup completed successfully")
                 if setup_tracker:
                     setup_tracker.update_phase_progress("codebase_update", "Codebase update completed successfully", True, 100)
                 return True
             else:
-                print(f"[FAIL] Codebase update failed with exit code {result.returncode}")
+                print(f"[FAIL] Codebase update failed with exit code {success.returncode}")
                 if setup_tracker:
                     setup_tracker.mark_phase_failed("codebase_update", f"Update process failed with exit code {result.returncode}")
                 return False
@@ -168,20 +185,25 @@ class SetupOrchestrator:
             print("PHASE 2: ENVIRONMENT VERIFICATION")
             print("="*60)
             
-            # Run verification_env.py
-            cmd = [sys.executable, "verification_env.py"]
-            
-            print(f"Executing: {' '.join(cmd)}")
-            
-            # Execute the verification process
-            result = subprocess.run(
-                cmd,
-                capture_output=False,  # Let output flow through for user visibility
-                text=True,
-                cwd=Path.cwd()
-            )
-            
-            if result.returncode == 0:
+            # Run verification_env.py via direct import
+            if verification_env:
+                import sys
+                original_argv = sys.argv
+                sys.argv = ["verification_env.py"]  # Simulate args for verification_env.py
+                try:
+                    verification_env.main()  # Call verification_env's main function
+                    success = True
+                except SystemExit as e:
+                    success = (e.code == 0)
+                finally:
+                    sys.argv = original_argv
+            else:
+                print("[FAIL] verification_env module not available")
+                success = False
+
+            print(f"Executing: verification_env.main()")
+
+            if success:
                 print("✓ Environment verification completed successfully")
                 if setup_tracker:
                     setup_tracker.update_phase_progress("environment_verification", "Environment verification completed successfully", True, 100)
@@ -214,7 +236,7 @@ class SetupOrchestrator:
                 setup_tracker.update_overall_status("completed", "Setup completed successfully")
             
             print("\n" + "="*60)
-            print("🎉 SETUP COMPLETED SUCCESSFULLY!")
+            print("SETUP COMPLETED SUCCESSFULLY!")
             print("="*60)
             print(f"Version {self.version} has been installed and verified.")
             print("Your environment is ready to use.")
@@ -227,7 +249,7 @@ class SetupOrchestrator:
                 setup_tracker.update_overall_status("failed", "Setup failed during codebase update phase")
             
             print("\n" + "="*60)
-            print("❌ SETUP FAILED")
+            print("SETUP FAILED")
             print("="*60)
             print("The setup process failed during the codebase update phase.")
             print("Please check the error messages above and try again.")
@@ -240,7 +262,7 @@ class SetupOrchestrator:
                 setup_tracker.update_overall_status("failed", "Setup failed during environment verification phase")
             
             print("\n" + "="*60)
-            print("⚠️  SETUP PARTIALLY COMPLETED")
+            print("SETUP PARTIALLY COMPLETED")
             print("="*60)
             print("The codebase update succeeded, but environment verification failed.")
             print("Your application may not function correctly.")
@@ -254,7 +276,7 @@ class SetupOrchestrator:
             Exit code (0 for success, non-zero for failure)
         """
         try:
-            print("🚀 Starting Setup Orchestration Process")
+            print("Starting Setup Orchestration Process")
             print(f"Target Version: {self.version}")
             
             # Step 1: Initialize setup state
@@ -276,13 +298,13 @@ class SetupOrchestrator:
             return self.overall_exit_code
             
         except KeyboardInterrupt:
-            print("\n\n⚠️  Setup process interrupted by user")
+            print("\n\nSetup process interrupted by user")
             if setup_tracker:
                 setup_tracker.update_overall_status("failed", "Setup interrupted by user")
             return 130  # Standard exit code for SIGINT
             
         except Exception as e:
-            print(f"\n\n💥 Unexpected error during setup orchestration: {e}")
+            print(f"\n\nUnexpected error during setup orchestration: {e}")
             if setup_tracker:
                 setup_tracker.update_overall_status("error", f"Unexpected orchestration error: {e}")
             return 99  # Custom exit code for unexpected errors
