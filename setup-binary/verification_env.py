@@ -7,7 +7,7 @@ Enhanced with:
 - Removed hardcoded Python installation paths and commands
 - Configurable server variables via environment variables
 - Integration with updater middleware server for fetching requirements.txt
-- Version reading from version.txt in .codemate.test folder
+- Version reading from version.txt in .codemate folder
 """
 
 import os
@@ -35,7 +35,7 @@ class Config:
     SERVER_BASE_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"
     
     # Environment paths (fully configurable)
-    CODEMATE_BASE_DIR = Path.home() / ".codemate.test"
+    CODEMATE_BASE_DIR = Path.home() / ".codemate"
     ENVIRONMENT_DIR = CODEMATE_BASE_DIR / "environment"
     MICROMAMBA_PATH = CODEMATE_BASE_DIR / ("micromamba.exe" if platform.system() == "Windows" else "micromamba")
     
@@ -88,7 +88,7 @@ def write_status(message: str, message_type: str = "Info") -> None:
     print(f"{color}{prefix} {message}{Colors.RESET}")
 
 def get_version_from_file() -> str:
-    """Read version from version.txt in .codemate.test folder"""
+    """Read version from version.txt in .codemate folder"""
     try:
         if Config.VERSION_FILE_PATH.exists():
             version = Config.VERSION_FILE_PATH.read_text().strip()

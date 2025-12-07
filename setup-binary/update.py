@@ -7,7 +7,7 @@ Enhanced to work with branch-based releases instead of tags.
 Uses only standard Python libraries.
 
 Key Improvements:
-- Fresh install staging: downloads to .codemate.test.staging → .codemate.test
+- Fresh install staging: downloads to .codemate.staging → .codemate
 - Update backup staging: creates backup_staging using exclude patterns
 - Exclude array for permanent files/folders
 - Cross-platform compatibility with pathlib
@@ -313,7 +313,7 @@ class UpdateManager:
         
         Args:
             middleware_updater: MiddlewareUpdater instance
-            codemate_path: Optional path to the codemate directory (overrides default ~/.codemate.test)
+            codemate_path: Optional path to the codemate directory (overrides default ~/.codemate)
         """
         self.middleware = middleware_updater
         
@@ -321,7 +321,7 @@ class UpdateManager:
         if codemate_path:
             self.codemate_dir = Path(codemate_path)
         else:
-            self.codemate_dir = Path.home() / ".codemate.test"
+            self.codemate_dir = Path.home() / ".codemate"
             
         self.version_file = self.codemate_dir / "version.txt"
         
@@ -330,7 +330,7 @@ class UpdateManager:
 
     def load_current_version(self) -> Optional[version.Version]:
         """
-        Load current version from .codemate.test/version.txt.
+        Load current version from .codemate/version.txt.
         
         Returns:
             Current Version object or None if not found
@@ -351,7 +351,7 @@ class UpdateManager:
 
     def save_version(self, ver: version.Version) -> bool:
         """
-        Save version to .codemate.test/version.txt.
+        Save version to .codemate/version.txt.
         
         Args:
             ver: Version to save
@@ -941,7 +941,7 @@ def main():
 
     # Initialize middleware updater
     middleware_updater = MiddlewareUpdater(args.middleware_url, args.repo)
-    # UpdateManager now defaults to ~/.codemate.test
+    # UpdateManager now defaults to ~/.codemate
     update_manager = UpdateManager(middleware_updater)
 
     # Check middleware health

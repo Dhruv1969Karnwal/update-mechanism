@@ -690,8 +690,89 @@ async def debug_url_construction(repo: str = None, version: str = None, path: st
 
 @app.get("/setup_script")
 async def get_setup_script():
-    """Return a short setup script for pre-setup execution."""
-    return {"script": "echo 'Pre-setup script executed from middleware'"}
+    """Return a cross-platform Python setup script for pre-setup execution."""
+    python_code = '''
+import platform
+import subprocess
+import shutil
+import os
+import time
+
+ports = [45223, 45224, 45226, 45227]
+system = platform.system()
+print(f"Running on {system}")
+
+def kill_pid(pid):
+    try:
+        if system == "Windows":
+            subprocess.run(["taskkill", "/F", "/PID", str(pid)], check=True)
+        else:
+            subprocess.run(["kill", "-9", str(pid)], check=True)
+        print(f"[KILLED] PID: {pid}")
+    except Exception as e:
+        print(f"[ERROR] Killing PID {pid}: {e}")
+
+# -------------------------
+# 1) Kill processes on ports
+# -------------------------
+for port in ports:
+    try:
+        if system == "Windows":
+            output = subprocess.check_output(["netstat", "-ano"], text=True)
+            for line in output.split("\n"):
+                if f":{port} " in line:
+                    parts = line.split()
+                    if len(parts) >= 5:
+                        pid = parts[-1]
+                        kill_pid(pid)
+        else:
+            output = subprocess.check_output(["lsof", "-ti", f":{port}"], text=True)
+            for pid in output.strip().split("\n"):
+                if pid.strip():
+                    kill_pid(pid.strip())
+    except Exception as e:
+        print(f"[WARN] Could not check port {port}: {e}")
+
+# -----------------------------------
+# 2) Extra: Kill ANY process locking folder
+# -----------------------------------
+folder = ".codemate"
+
+if os.path.exists(folder):
+    print("\nChecking for processes locking .codemate...")
+
+    try:
+        if system != "Windows":
+            output = subprocess.check_output(["lsof", "+D", folder], text=True)
+            lines = output.split("\n")[1:]
+            seen_pids = set()
+            for line in lines:
+                parts = line.split()
+                if len(parts) > 1:
+                    pid = parts[1]
+                    if pid not in seen_pids:
+                        seen_pids.add(pid)
+                        kill_pid(pid)
+        else:
+            print("Windows: Cannot detect locking processes without SysInternals handle.exe")
+            print("Attempting delete anyway...")
+    except Exception:
+        pass
+
+# -------------------------
+# 3) Now try deleting folder
+# -------------------------
+print("\nDeleting .codemate folder...")
+
+try:
+    shutil.rmtree(folder)
+    print("SUCCESS: Deleted .codemate folder")
+except Exception as e:
+    print(f"FAILED to delete folder: {e}")
+
+'''
+    script = f"python -c \"{python_code}\""
+    return {"script": script}
 
 if __name__ == "__main__":
     import uvicorn

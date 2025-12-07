@@ -33,9 +33,9 @@ class SetupStateTracker:
         Args:
             state_file_path: Optional custom path for setup_state.json
         """
-        # Default path inside .codemate.test directory
+        # Default path inside .codemate directory
         if state_file_path is None:
-            codemate_dir = Path.home() / ".codemate.test"
+            codemate_dir = Path.home() / ".codemate"
             codemate_dir.mkdir(parents=True, exist_ok=True)
             self.state_file_path = codemate_dir / "setup_state.json"
         else:

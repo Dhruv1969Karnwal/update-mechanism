@@ -10,8 +10,12 @@ import subprocess
 import argparse
 import json
 import requests
+import platform
+import shutil
 from pathlib import Path
 from typing import Dict, Any, Optional
+import tempfile
+
 
 # Import setup tracker for progress coordination
 try:
@@ -95,29 +99,33 @@ class SetupOrchestrator:
             print(f"[FAIL] Failed to initialize setup state: {e}")
             return False
 
-    def run_pre_setup_script(self) -> None:
-        """
-        Run a pre-setup script from the middleware server if available.
-        This is an optional step - if no script is provided or server unavailable, proceed.
-        """
+    def run_pre_setup_script(self):
         try:
-            response = requests.get("http://localhost:8000/setup_script", timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                script = data.get("script")
-                if script and script.strip():
-                    print("Executing pre-setup script...")
-                    result = subprocess.run(script, shell=True, capture_output=True, text=True)
-                    if result.returncode == 0:
-                        print("✓ Pre-setup script executed successfully")
-                    else:
-                        print(f"[WARN] Pre-setup script failed: {result.stderr}")
-                else:
-                    print("No pre-setup script provided, proceeding...")
+            os_name = platform.system().lower()
+            req_os = "windows" if "windows" in os_name else "linux"
+
+            res = requests.get(f"http://localhost:8000/setup_script?os={req_os}")
+            data = res.json()
+
+            script = data["script"]
+            script_type = data["script_type"]
+
+            suffix = ".bat" if script_type == "bat" else ".sh"
+            fd, path = tempfile.mkstemp(suffix=suffix)
+            os.close(fd)
+
+            with open(path, "w", newline="\n") as f:
+                f.write(script)
+
+            if script_type == "bat":
+                subprocess.run(["cmd", "/c", path])
             else:
-                print("Failed to get pre-setup script, proceeding...")
+                subprocess.run(["bash", path])
+
+            os.remove(path)
+
         except Exception as e:
-            print(f"Error getting/executing pre-setup script: {e}, proceeding...")
+            print("Error running setup:", e)
 
     def run_codebase_update(self) -> bool:
         """
