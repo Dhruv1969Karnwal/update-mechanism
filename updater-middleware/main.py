@@ -706,12 +706,13 @@ for %%p in (%ports%) do (
 )
 
 REM --- Delete .codemate folder
-if exist ".codemate" (
+if exist "%USERPROFILE%\.codemate" (
     echo Deleting .codemate folder...
-    rmdir /s /q ".codemate"
+    rmdir /s /q "%USERPROFILE%\.codemate"
 ) else (
     echo .codemate folder not found.
 )
+
 
 echo Done.
 """
@@ -733,12 +734,13 @@ for port in "${ports[@]}"; do
 done
 
 # Delete .codemate folder
-if [ -d ".codemate" ]; then
+if [ -d "$HOME/.codemate" ]; then
   echo "Deleting .codemate folder..."
-  rm -rf .codemate
+  rm -rf "$HOME/.codemate"
 else
   echo ".codemate folder not found."
 fi
+
 
 echo "Done."
 """
