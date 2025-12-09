@@ -753,6 +753,56 @@ async def get_setup_script(os: str):
     return {"script_type": "sh", "script": LINUX_SH_SCRIPT}
 
 
+@app.get("/install_dependencies")
+async def install_dependencies(os: str, version: str, ram: int = 8):
+    """Install dependencies endpoint that fetches requirements file based on OS and version."""
+    os_mapping = {
+        'windows': 'req_win.txt',
+        'mac': 'req_mac.txt',
+        'linux': 'req_linux.txt'
+    }
+    filename = os_mapping.get(os, 'req_linux.txt')
+
+    # Normalize version
+    clean_version = version.lstrip('vV')
+    branch_name = f"release/v{clean_version}"
+    repo = config.DEFAULT_REPO
+
+    try:
+        # Try GitHub API first for private repos
+        if config.GITHUB_TOKEN or (config.GITHUB_USERNAME and config.GITHUB_PASSWORD):
+            try:
+                api_url = f"repos/{repo}/contents/{filename}?ref={branch_name}"
+                response_data = await github_client.get(api_url)
+
+                if response_data.get('encoding') == 'base64' and 'content' in response_data:
+                    import base64
+                    content = base64.b64decode(response_data['content']).decode('utf-8')
+                    return {"content": content, "os": os, "version": version, "ram": ram}
+            except Exception as api_error:
+                logger.warning(f"API download failed for {filename}: {api_error}")
+
+        # Fallback to raw URL
+        raw_url = f"https://raw.githubusercontent.com/{repo}/{branch_name}/release_v{clean_version}/codebase/code/{filename}"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(raw_url, headers=github_client.headers)
+
+            if response.status_code == 200:
+                content = response.text
+                return {"content": content, "os": os, "version": version, "ram": ram}
+            elif response.status_code == 404:
+                raise HTTPException(status_code=404, detail=f"Requirements file not found for {os} at version {version}")
+            else:
+                raise HTTPException(status_code=response.status_code, detail=f"Failed to fetch requirements: {response.text}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching requirements for {os} version {version}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch requirements: {str(e)}")
+
+
 if __name__ == "__main__":
     import uvicorn
     

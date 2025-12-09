@@ -266,6 +266,25 @@ class MiddlewareUpdater:
             print(f"Error cloning codebase: {e}")
             return None
 
+    def get_dependencies_content(self, version_tag: str, os: str) -> str:
+        """
+        Get dependencies content from middleware.
+
+        Args:
+            version_tag: Version tag
+            os: Operating system ('windows', 'mac', 'linux')
+
+        Returns:
+            Requirements content as string
+        """
+        try:
+            endpoint = f"/install_dependencies?os={os}&version_tag={version_tag}"
+            response = self._make_request(endpoint)
+            return response.get('content', '')
+        except Exception as e:
+            print(f"Error getting dependencies content: {e}")
+            return ''
+
 
 def _get_exclude_function(exclude_patterns: List[str] = None) -> callable:
     """
@@ -413,7 +432,7 @@ class UpdateManager:
             print(f"Installation Directory: {self.codemate_dir}")
 
             # Create staging directory for fresh install
-            staging_dir = self.codemate_dir.parent / f"{self.codemate_dir.name}.staging"
+            staging_dir = self.codemate_dir / ".staging"
             staging_dir.mkdir(parents=True, exist_ok=True)
             print(f"[STAGING] Created staging directory: {staging_dir}")
 
@@ -679,17 +698,32 @@ class UpdateManager:
                         failed_operations.append(error_msg)
             
             # Phase 4: Handle dependencies
-            if 'req.txt' in manifest or manifest.get('dependencies'):
-                total_operations += 1
-                print(f"\n[PACKAGE] Installing dependencies...")
-                
-                # Download requirements.txt if not already present
-                req_path = self.codemate_dir / "requirements.txt"
-                if self.middleware.download_file(version_tag, "requirements.txt", str(req_path)):
+            total_operations += 1
+            print(f"\n[PACKAGE] Installing dependencies...")
+
+            # Detect OS
+            os_mapping = {
+                'Windows': 'windows',
+                'Darwin': 'mac',
+                'Linux': 'linux'
+            }
+            detected_os = os_mapping.get(platform.system(), 'linux')
+
+            # Get dependencies content from middleware
+            dependencies_content = self.middleware.get_dependencies_content(version_tag, detected_os)
+            if dependencies_content:
+                # Save to req_download.txt in .codemate directory
+                req_download_path = self.codemate_dir / "req_download.txt"
+                try:
+                    with open(req_download_path, 'w', encoding='utf-8') as f:
+                        f.write(dependencies_content)
+                    print(f"   [FILE] Dependencies saved to {req_download_path}")
+
+                    # Install dependencies from the saved file
                     try:
                         print("   [PACKAGE] Installing Python dependencies...")
                         result = subprocess.run(
-                            [sys.executable, "-m", "pip", "install", "-r", str(req_path)],
+                            [sys.executable, "-m", "pip", "install", "-r", str(req_download_path)],
                             check=True,
                             capture_output=True,
                             text=True,
@@ -711,10 +745,14 @@ class UpdateManager:
                         error_msg = "Pip not found. Please ensure pip is installed."
                         print(f"[ERROR] {error_msg}")
                         failed_operations.append(error_msg)
-                else:
-                    error_msg = "Failed to download requirements.txt"
+                except Exception as e:
+                    error_msg = f"Failed to save dependencies file: {e}"
                     print(f"[ERROR] {error_msg}")
                     failed_operations.append(error_msg)
+            else:
+                error_msg = "Failed to get dependencies content from middleware"
+                print(f"[ERROR] {error_msg}")
+                failed_operations.append(error_msg)
             
             # Report results
             print(f"\n[STATUS] Operations completed: {success_count}/{total_operations}")
@@ -850,7 +888,7 @@ class UpdateManager:
                 print(f"[UPDATE] Sequential update through: {' → '.join(map(str, intermediate_versions))}")
             
             # Create backup staging directory for updates
-            backup_staging_dir = self.codemate_dir.parent / "backup_staging"
+            backup_staging_dir = self.codemate_dir / "backup_staging"
             backup_staging_dir.mkdir(parents=True, exist_ok=True)
             print(f"[BACKUP_STAGING] Directory: {backup_staging_dir}")
             if setup_tracker:

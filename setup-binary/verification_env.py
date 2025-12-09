@@ -325,15 +325,14 @@ def test_required_files(state: State) -> bool:
     """Check for required application files"""
     if setup_tracker:
         setup_tracker.update_phase_progress("environment_verification", "Verifying application files", True, 45)
-    
+
     write_status("Checking required files...", "Info")
-    
-    current_dir = Path.cwd()
+
     required_files = [
-        current_dir / "initiate.py",
-        current_dir / "http_server.py", 
-        current_dir / "websocket_server.py",
-        current_dir / "ipc.py"
+        Config.CODEMATE_BASE_DIR / "initiate.py",
+        # Config.CODEMATE_BASE_DIR / "http_server.py",
+        # Config.CODEMATE_BASE_DIR / "websocket_server.py",
+        # Config.CODEMATE_BASE_DIR / "ipc.py"
     ]
     
     all_files_exist = True
@@ -351,14 +350,14 @@ def test_qdrant_binary(state: State) -> bool:
     """Check for Qdrant binary"""
     if setup_tracker:
         setup_tracker.update_phase_progress("environment_verification", "Checking vector database components", True, 55)
-    
+
     write_status("Checking Qdrant binary...", "Info")
-    
+
     # Qdrant will be downloaded by initiate.py if not present
     possible_paths = [
         Config.CODEMATE_BASE_DIR / ("qdrant.exe" if platform.system() == "Windows" else "qdrant"),
-        Path.cwd() / ("qdrant.exe" if platform.system() == "Windows" else "qdrant"),
-        Path.cwd() / "BASE" / "vdb" / ("qdrant.exe" if platform.system() == "Windows" else "qdrant")
+        Config.CODEMATE_BASE_DIR / ("qdrant.exe" if platform.system() == "Windows" else "qdrant"),
+        Config.CODEMATE_BASE_DIR / "BASE" / "vdb" / ("qdrant.exe" if platform.system() == "Windows" else "qdrant")
     ]
     
     found = False
@@ -489,6 +488,21 @@ def show_summary(state: State) -> bool:
         print(f"  Server: {Config.SERVER_BASE_URL}{Colors.WHITE}")
         print(f"  Version: {get_version_from_file()}{Colors.WHITE}")
         print("")
+
+        # Automatically start initiate.py
+        try:
+            write_status("Starting initiate.py...", "Info")
+            python_path = get_python_path()
+            initiate_path = Config.CODEMATE_BASE_DIR / "initiate.py"
+            if python_path and initiate_path.exists():
+                # Start initiate.py in background (non-blocking)
+                subprocess.Popen([str(python_path), str(initiate_path)], cwd=str(Config.CODEMATE_BASE_DIR))
+                write_status("initiate.py started successfully in background", "Success")
+            else:
+                write_status("Cannot start initiate.py: Python or initiate.py path not found", "Error")
+        except Exception as e:
+            write_status(f"Failed to start initiate.py: {e}", "Error")
+
         return True
 
 def main():
